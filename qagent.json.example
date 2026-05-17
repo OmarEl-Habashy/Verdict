@@ -1,0 +1,5 @@
+{
+  "model_url": "http://localhost:11434/api/chat",
+  "model_name": "gemma3",
+  "max_heals": 2
+}

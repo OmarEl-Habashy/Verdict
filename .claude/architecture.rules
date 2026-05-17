@@ -1,0 +1,303 @@
+# QAgent — Architecture Rules
+
+> These rules are **non-negotiable**. Any contribution or AI-generated code that violates
+> them must be rejected and rewritten. The goal is a codebase that reads like competitive
+> programming: fast, explicit, zero-surprise.
+
+---
+
+## Rule 1 — No Interfaces in Production Code
+
+**Rationale:** Interfaces add indirection, make call sites unpredictable, and complicate
+debugging. In a 500-line CLI tool, the cost is never worth it.
+
+```go
+// ❌ FORBIDDEN
+type LLMClient interface {
+    Call(req Request) (string, error)
+}
+
+// ✅ REQUIRED — concrete struct, direct function call
+type OllamaClient struct {
+    URL     string
+    Timeout time.Duration
+}
+func CallOllama(c OllamaClient, req LLMRequest) (string, error) { ... }
+```
+
+**Exception:** `bubbletea` library requires implementing `tea.Model` — that interface is
+permitted only in `internal/ui/spinner.go`.
+
+---
+
+## Rule 2 — No Methods on Domain Structs
+
+Domain structs (`Config`, `FileContext`, `TestResult`, `RunResult`) are **pure data**.
+They have no methods. All logic lives in standalone functions.
+
+```go
+// ❌ FORBIDDEN
+func (r RunResult) IsSuccess() bool { return r.Passed }
+
+// ✅ REQUIRED — plain function
+func isSuccess(r RunResult) bool { return r.Passed }
+```
+
+---
+
+## Rule 3 — Functions Are Pure and Single-Purpose
+
+Each function does exactly one thing and has no side effects beyond its stated purpose.
+
+```go
+// ❌ FORBIDDEN — mixed concerns
+func GenerateAndWrite(cfg Config, ctx FileContext) (string, error) {
+    // calls LLM, parses response, AND writes file
+}
+
+// ✅ REQUIRED — separated
+func CallLLM(url string, req LLMRequest, timeout int) (string, error)
+func ExtractGoBlock(raw string) (string, error)
+func WriteTestFile(targetPath, code string) (string, error)
+```
+
+---
+
+## Rule 4 — All Errors Are Returned, Never Panicked
+
+```go
+// ❌ FORBIDDEN
+func LoadFile(path string) FileContext {
+    src, err := os.ReadFile(path)
+    if err != nil { panic(err) }
+    ...
+}
+
+// ✅ REQUIRED
+func LoadFile(path string) (FileContext, error) {
+    src, err := os.ReadFile(path)
+    if err != nil {
+        return FileContext{}, fmt.Errorf("loadFile: reading %s: %w", path, err)
+    }
+    ...
+}
+```
+
+**Error wrapping format:** `"functionName: context: %w"` — always include the calling
+function name as the first segment.
+
+---
+
+## Rule 5 — No Global Mutable State
+
+```go
+// ❌ FORBIDDEN
+var globalConfig Config
+var modelURL string
+
+// ✅ REQUIRED — pass Config explicitly to every function that needs it
+func RunPipeline(cfg Config) RunResult { ... }
+func callModel(cfg Config, msgs []LLMMessage) (string, error) { ... }
+```
+
+The only permitted package-level declarations are:
+- `const` values
+- `var` for `fatih/color` color objects (they are immutable after construction)
+
+---
+
+## Rule 6 — String Manipulation Only, No Regex
+
+The LLM response parser uses **zero regex**. All parsing is done with `strings` package
+functions: `Index`, `Contains`, `HasPrefix`, `TrimSpace`, `TrimLeftFunc`, `Split`.
+
+**Rationale:** Regex in Go requires compilation, is harder to read, and fails in subtle
+ways on LLM output with unusual unicode. String indexing is explicit and debuggable.
+
+```go
+// ❌ FORBIDDEN
+re := regexp.MustCompile("```go\n([\s\S]+?)```")
+match := re.FindStringSubmatch(raw)
+
+// ✅ REQUIRED
+start := strings.Index(raw, "```go")
+if start == -1 { return "", fmt.Errorf("no go block found") }
+rest := raw[start+6:]
+end := strings.Index(rest, "```")
+if end == -1 { return "", fmt.Errorf("unclosed go block") }
+code := strings.TrimSpace(rest[:end])
+```
+
+---
+
+## Rule 7 — Subprocess Calls Are Always Bounded
+
+Every call to `os/exec` must:
+1. Use `exec.CommandContext` with a `context.WithTimeout`
+2. Have both `cmd.Stdout` and `cmd.Stderr` captured to `bytes.Buffer`
+3. Check `ctx.Err()` after `cmd.Run()` to distinguish timeout from normal failure
+
+```go
+// ✅ CANONICAL SUBPROCESS PATTERN
+ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+defer cancel()
+
+cmd := exec.CommandContext(ctx, "go", "test", "-v", "-count=1", "-timeout=30s", "./...")
+cmd.Dir = dir
+var stdout, stderr bytes.Buffer
+cmd.Stdout = &stdout
+cmd.Stderr = &stderr
+
+err := cmd.Run()
+if ctx.Err() == context.DeadlineExceeded {
+    return TestResult{Passed: false, Stderr: "go test timed out after 60s"}
+}
+```
+
+---
+
+## Rule 8 — LLM Credentials from Environment Only
+
+```go
+// ❌ FORBIDDEN — flag or config file
+cfg.APIKey = flag.String("api-key", "", "...")
+
+// ✅ REQUIRED — environment variable only
+cfg.APIKey = os.Getenv("QAGENT_API_KEY")
+```
+
+`qagent.json` config files must **never** contain an `api_key` field. If present, it must
+be silently ignored and a warning logged.
+
+---
+
+## Rule 9 — Stderr Fed to LLM Is Always Capped
+
+Any string derived from `go test` stderr that gets injected into an LLM prompt must be
+hard-truncated:
+
+```go
+const maxStderrForLLM = 2000
+
+func capStderr(s string) string {
+    if len(s) <= maxStderrForLLM {
+        return s
+    }
+    return s[:maxStderrForLLM] + "\n... (truncated to 2000 chars)"
+}
+```
+
+**Rationale:** A broken generated file can produce multi-kilobyte error output. Injecting
+it wholesale wastes context window and can cause token limit errors.
+
+---
+
+## Rule 10 — The Heal Loop Is Strictly Bounded
+
+```go
+// MaxHeals is set in Config; default 2; hard ceiling 5
+const healCeiling = 5
+
+func clampMaxHeals(n int) int {
+    if n < 0 { return 0 }
+    if n > healCeiling { return healCeiling }
+    return n
+}
+```
+
+The loop in `RunPipeline` runs `for attempt := 0; attempt <= cfg.MaxHeals; attempt++`.
+There is no `break` on success inside `attempt > 0` that bypasses the counter — the counter
+always increments.
+
+---
+
+## Rule 11 — Package Layout Is Fixed
+
+| Package | Permitted imports |
+|---------|-----------------|
+| `main` | all internal packages, `os`, `fmt`, `time`, `path/filepath` |
+| `internal/loader` | `os`, `strings`, `fmt`, `path/filepath` |
+| `internal/llm` | `net/http`, `encoding/json`, `io`, `fmt`, `time`, `context` |
+| `internal/parser` | `strings`, `fmt`, `os`, `path/filepath` |
+| `internal/runner` | `os/exec`, `bytes`, `context`, `time`, `strings`, `fmt` |
+| `internal/ui` | `fmt`, `time`, `os`, `github.com/fatih/color`, `bubbletea`, `bubbles` |
+
+**Cross-package import rules:**
+- `internal/ui` must **never** import `internal/llm`, `internal/runner`, or `internal/loader`
+- `internal/loader` must **never** import any other internal package
+- Only `main` imports multiple internal packages and wires them together
+
+---
+
+## Rule 12 — Test File Naming & Placement
+
+Generated test files follow Go conventions strictly:
+- Name: `<source_basename>_test.go`
+- Package declaration: must match the source file's package name exactly
+- Location: same directory as source file, unless `--output-dir` is specified
+
+```go
+func deriveTestFilePath(sourcePath, outputDir string) string {
+    base := strings.TrimSuffix(filepath.Base(sourcePath), ".go") + "_test.go"
+    if outputDir != "" {
+        return filepath.Join(outputDir, base)
+    }
+    return filepath.Join(filepath.Dir(sourcePath), base)
+}
+```
+
+---
+
+## Rule 13 — UI Is Always Optional
+
+The entire `internal/ui` package must degrade gracefully when stdout is not a TTY.
+
+```go
+func isTTY() bool {
+    // simplified — use golang.org/x/term or os.Stdout.Stat() in practice
+    fi, err := os.Stdout.Stat()
+    if err != nil { return false }
+    return (fi.Mode() & os.ModeCharDevice) != 0
+}
+```
+
+When `!isTTY()`: skip spinner, skip color codes, print plain timestamped log lines.
+When `--quiet`: skip everything except the final JSON line.
+
+---
+
+## Rule 14 — Version Compatibility
+
+- Minimum Go version: **1.21** (for `min()` builtin, `os.ReadFile` stability)
+- `go.mod` must pin: `go 1.21`
+- No use of generics (Go 1.18+) — not needed and adds cognitive overhead for a procedural codebase
+- No use of `log/slog` — use `internal/ui` logger exclusively for user-facing output
+
+---
+
+## Rule 15 — No Speculative Abstractions
+
+Do not create types, functions, or packages for features that don't exist yet.
+
+```go
+// ❌ FORBIDDEN — "we might add more models later"
+type ModelProvider interface {
+    Generate(prompt string) (string, error)
+}
+
+// ✅ REQUIRED — write the two concrete functions that exist today
+func CallLLM(url string, req LLMRequest, timeout int) (string, error)
+func CallLLMOpenAI(url, apiKey string, req OpenAIRequest, timeout int) (string, error)
+```
+
+**The YAGNI rule is absolute here.** QAgent is a focused tool. Its architecture should
+reflect exactly what it does today, written as plainly as possible.
+
+---
+
+## Enforcement
+
+These rules are checked in code review and by `go vet ./...` where possible. When an AI
+assistant (including future QAgent runs on its own codebase) generates Go code for this
+project, it must be instructed to load this file first and treat every rule as a hard
+constraint, not a suggestion.

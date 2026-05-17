@@ -1,0 +1,12 @@
+# Secrets
+.env
+
+# Build output
+bin/
+
+# Generated test files (produced by qagent itself)
+testdata/*_test.go
+
+# Editor / OS
+.vscode/
+*.exe
