@@ -32,8 +32,12 @@ func main() {
 		if err != nil {
 			os.Exit(1)
 		}
+		// User exited without confirming — clean exit.
+		if len(allFiles) == 0 {
+			os.Exit(0)
+		}
 
-		// Process each file with test execution
+		// Run tests on confirmed files.
 		successCount := 0
 		failureCount := 0
 
@@ -48,7 +52,6 @@ func main() {
 				ModelURL:   os.Getenv("QAGENT_MODEL_URL"),
 				APIKey:     os.Getenv("QAGENT_API_KEY"),
 			}
-
 			if cfg.ModelName == "" {
 				cfg.ModelName = "ollama/mistral"
 			}
@@ -69,7 +72,6 @@ func main() {
 				ui.LogError("Failed: %s", filepath.Base(file))
 			}
 
-			// Log individual run
 			LogRun(RunRecord{
 				File:      filepath.Base(file),
 				Model:     cfg.ModelName,
@@ -84,7 +86,6 @@ func main() {
 		fmt.Println()
 		ui.LogBatchSummary(successCount, failureCount)
 		fmt.Println()
-
 		return
 	}
 

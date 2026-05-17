@@ -4,28 +4,17 @@ import (
 	"fmt"
 )
 
-// RunInteractiveMode displays the welcome banner, launches the TUI file browser,
-// and returns the selected rootDir and list of .go files.
-// Returns an error if the TUI fails or no files are found.
+// RunInteractiveMode launches the full-screen TUI and returns the selected
+// rootDir and file list after user confirmation.
+// Returns ("", nil, nil) when the user exits without confirming — caller should exit 0.
 func RunInteractiveMode() (string, []string, error) {
-	fmt.Println()
-	colorStep.Println("╔════════════════════════════════════════╗")
-	colorStep.Println("║        QAgent — Interactive TUI       ║")
-	colorStep.Println("║      Claude Code Vibes Edition        ║")
-	colorStep.Println("╚════════════════════════════════════════╝")
-
-	rootDir, allFiles, err := RunTUI()
+	rootDir, files, err := RunTUI()
 	if err != nil {
-		colorError.Printf("  ✗ TUI failed: %v\n", err)
-		return "", nil, err
+		return "", nil, fmt.Errorf("TUI error: %w", err)
 	}
-
-	if rootDir == "" || len(allFiles) == 0 {
-		colorWarn.Println("  ⚠ No files selected")
-		return "", nil, fmt.Errorf("no files selected")
+	if rootDir == "" || len(files) == 0 {
+		// User exited or confirmed with no selection — not an error.
+		return "", nil, nil
 	}
-
-	colorSuccess.Printf("\n  ✓ Selected %d files from %s\n\n", len(allFiles), rootDir)
-
-	return rootDir, allFiles, nil
+	return rootDir, files, nil
 }
