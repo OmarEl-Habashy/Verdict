@@ -1,0 +1,21 @@
+mode: set
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:5.58,8.29 2 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:8.29,12.3 3 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:14.2,19.23 4 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:19.23,21.42 2 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:21.42,22.26 1 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:22.26,24.5 1 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:29.2,29.26 1 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:29.26,30.18 1 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:30.18,33.4 2 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:36.2,36.23 1 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:40.55,42.29 2 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:42.29,46.3 3 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:48.2,52.41 4 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:52.41,55.42 3 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:55.42,56.26 1 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:56.26,58.5 1 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:62.2,62.26 1 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:62.26,63.18 1 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:63.18,67.4 3 1
+github.com/OmarEl-Habashy/qagent/testdata/graph/poland_ball.go:70.2,70.19 1 1

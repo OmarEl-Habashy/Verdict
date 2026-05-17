@@ -1,9 +1,8 @@
 package mathutil
 
-import (
-	"testing"
-)
+import "testing"
 
+// TestAdd tests the Add function.
 func TestAdd(t *testing.T) {
 	cases := []struct {
 		name string
@@ -13,6 +12,7 @@ func TestAdd(t *testing.T) {
 		{"positive", 2, 3, 5},
 		{"zero", 0, 0, 0},
 		{"negative", -1, -2, -3},
+		{"mixed", -1, 2, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -24,6 +24,7 @@ func TestAdd(t *testing.T) {
 	}
 }
 
+// TestSub tests the Sub function.
 func TestSub(t *testing.T) {
 	cases := []struct {
 		name string
@@ -33,6 +34,7 @@ func TestSub(t *testing.T) {
 		{"positive", 5, 3, 2},
 		{"zero", 0, 0, 0},
 		{"negative", -1, -2, 1},
+		{"mixed", 2, -2, 4},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -44,6 +46,7 @@ func TestSub(t *testing.T) {
 	}
 }
 
+// TestMul tests the Mul function.
 func TestMul(t *testing.T) {
 	cases := []struct {
 		name string
@@ -52,8 +55,8 @@ func TestMul(t *testing.T) {
 	}{
 		{"positive", 2, 3, 6},
 		{"zero", 0, 5, 0},
-		{"negative", -1, 2, -2},
-		{"negative zero", 5, 0, 0},
+		{"negative", -3, 2, -6},
+		{"mixed", -4, -5, 20},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -65,31 +68,34 @@ func TestMul(t *testing.T) {
 	}
 }
 
+// TestDiv tests the Div function.
 func TestDiv(t *testing.T) {
 	cases := []struct {
-		name      string
+		name     string
 		a, b     int
 		want     int
-		expectErr bool
+		wantErr  bool
 	}{
 		{"positive", 6, 3, 2, false},
-		{"zero dividend", 0, 1, 0, false},
-		{"negative dividend", -6, 2, -3, false},
+		{"zero", 0, 1, 0, false},
+		{"negative", -10, 2, -5, false},
 		{"division by zero", 1, 0, 0, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := Div(tc.a, tc.b)
-			if tc.expectErr {
+			if tc.wantErr {
 				if err == nil {
-					t.Errorf("Div(%d, %d) = %d; expected an error", tc.a, tc.b, got)
+					t.Errorf("Div(%d, %d) expected error, got none", tc.a, tc.b)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("Div(%d, %d) returned an error: %v", tc.a, tc.b, err)
-				} else if got != tc.want {
-					t.Errorf("Div(%d, %d) = %d; want %d", tc.a, tc.b, got, tc.want)
-				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Div(%d, %d) returned error: %v", tc.a, tc.b, err)
+				return
+			}
+			if got != tc.want {
+				t.Errorf("Div(%d, %d) = %d; want %d", tc.a, tc.b, got, tc.want)
 			}
 		})
 	}
