@@ -11,11 +11,12 @@ import (
 
 // JSONOutput is the machine-readable result emitted in --quiet mode.
 type JSONOutput struct {
-	Passed    bool   `json:"passed"`
-	Attempts  int    `json:"attempts"`
-	TestFile  string `json:"test_file"`
-	ElapsedMs int64  `json:"elapsed_ms"`
-	Error     string `json:"error,omitempty"`
+	Passed    bool    `json:"passed"`
+	Attempts  int     `json:"attempts"`
+	TestFile  string  `json:"test_file"`
+	ElapsedMs int64   `json:"elapsed_ms"`
+	Coverage  float64 `json:"coverage,omitempty"` // 0 if not collected
+	Error     string  `json:"error,omitempty"`
 }
 
 // SummaryResult is a minimal interface for PrintSummary/PrintJSON —
@@ -26,6 +27,7 @@ type SummaryResult struct {
 	Attempts   int
 	FinalError string
 	ElapsedMs  int64
+	Coverage   float64 // test coverage percentage (0-100), 0 if not collected
 }
 
 // PrintSummary renders the ASCII summary box to stdout.
@@ -53,6 +55,10 @@ func PrintSummary(r SummaryResult, elapsed time.Duration) {
 	fmt.Printf("  ║  %-10s: %-27s║\n", "Status", statusStr)
 	fmt.Printf("  ║  %-10s: %-27s║\n", "File", testFile)
 	fmt.Printf("  ║  %-10s: %-27s║\n", "Attempts", fmt.Sprintf("%d / %d max", r.Attempts, r.Attempts))
+	if r.Coverage > 0 {
+		coverageStr := fmt.Sprintf("%.1f%%", r.Coverage)
+		fmt.Printf("  ║  %-10s: %-27s║\n", "Coverage", coverageStr)
+	}
 	fmt.Printf("  ║  %-10s: %-27s║\n", "Time", elapsedStr)
 	fmt.Println("  ╚" + repeat("═", width) + "╝")
 	fmt.Println()
@@ -70,6 +76,7 @@ func PrintJSON(r SummaryResult, elapsed time.Duration) {
 		Attempts:  r.Attempts,
 		TestFile:  r.TestFile,
 		ElapsedMs: elapsed.Milliseconds(),
+		Coverage:  r.Coverage,
 	}
 	if r.FinalError != "" {
 		out.Error = r.FinalError

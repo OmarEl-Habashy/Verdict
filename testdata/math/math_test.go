@@ -1,6 +1,8 @@
 package mathutil
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestAdd(t *testing.T) {
 	cases := []struct {
@@ -51,6 +53,7 @@ func TestMul(t *testing.T) {
 		{"positive", 2, 3, 6},
 		{"zero", 0, 5, 0},
 		{"negative", -1, 2, -2},
+		{"negative zero", 5, 0, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -64,24 +67,29 @@ func TestMul(t *testing.T) {
 
 func TestDiv(t *testing.T) {
 	cases := []struct {
-		name string
-		a, b int
-		want int
-		err  bool
+		name      string
+		a, b     int
+		want     int
+		expectErr bool
 	}{
-		{"normal", 6, 3, 2, false},
-		{"zero", 1, 0, 0, true},
-		{"negative", -4, 2, -2, false},
+		{"positive", 6, 3, 2, false},
+		{"zero dividend", 0, 1, 0, false},
+		{"negative dividend", -6, 2, -3, false},
+		{"division by zero", 1, 0, 0, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := Div(tc.a, tc.b)
-			if (err != nil) != tc.err {
-				t.Errorf("Div(%d, %d) error = %v; wantErr %v", tc.a, tc.b, err, tc.err)
-				return
-			}
-			if !tc.err && got != tc.want {
-				t.Errorf("Div(%d, %d) = %d; want %d", tc.a, tc.b, got, tc.want)
+			if tc.expectErr {
+				if err == nil {
+					t.Errorf("Div(%d, %d) = %d; expected an error", tc.a, tc.b, got)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Div(%d, %d) returned an error: %v", tc.a, tc.b, err)
+				} else if got != tc.want {
+					t.Errorf("Div(%d, %d) = %d; want %d", tc.a, tc.b, got, tc.want)
+				}
 			}
 		})
 	}

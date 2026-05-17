@@ -139,7 +139,30 @@ if len(s) > maxStderrForLLM {
 }
 ```
 
-### 11. No speculative abstractions (YAGNI is absolute)
+### 11. Coverage profiling collects with go test -coverprofile
+When `--coverage` flag is set, `RunTests` passes `-coverprofile=coverage.out` to go test.
+```go
+// In RunTests:
+args := []string{"test", "-v", "-count=1", "-timeout=30s"}
+if collectCoverage {
+    args = append(args, "-coverprofile=coverage.out")
+}
+```
+The `extractCoverage()` function parses coverage.out and returns percentage (0-100).
+Coverage is displayed in PrintSummary box only if > 0 and only when tests pass.
+
+### 12. Low coverage (<80%) triggers healing
+After `RunTests()` returns with passing tests, check coverage:
+```go
+if lastResult.Passed && lastResult.Coverage > 0 && lastResult.Coverage < 80.0 {
+    lastResult.Passed = false
+    lastResult.ErrorType = "low_coverage"
+}
+```
+Tests that compile and pass but achieve <80% coverage are re-submitted to LLM via healing loop.
+This ensures iterative improvement toward branch coverage target. Use dedicated `buildCoverageHealPrompt()` that guides the LLM to add missing branches and edge cases (zero, negative, error paths, nil inputs).
+
+### 13. No speculative abstractions (YAGNI is absolute)
 Do not create types, packages, or functions for features that don't exist yet.
 If there are two LLM backends today, write two concrete functions — not a provider interface.
 
@@ -173,7 +196,9 @@ qagent/
 │   ├── parser/
 │   │   └── parser.go           ← ExtractGoBlock, WriteTestFile
 │   ├── runner/
-│   │   └── runner.go           ← RunTests, CleanTestFile
+│   │   ├── runner.go           ← RunTests, CleanTestFile, extractCoverage
+│   │   ├── classify.go         ← ClassifyError (5-category mapping)
+│   │   └── diagnose.go         ← DiagnoseTestFailure, extractFirstErrorFile
 │   └── ui/
 │       ├── logger.go            ← LogInfo/Success/Error/Warn/Step/CodeBlock
 │       ├── spinner.go           ← SpinnerModel, RunSpinner
@@ -216,6 +241,7 @@ type Config struct {
     DryRun     bool
     NoHeal     bool
     Quiet      bool
+    Coverage   bool   // if true, collect test coverage with -coverprofile
 }
 
 type RunResult struct {
@@ -256,9 +282,15 @@ The heal loop counter always increments. No early-break that skips the counter.
 `MaxHeals` default is 2. Hard ceiling is 5 (`healCeiling` const).
 
 **Phase 2 Enhancements:**
-- `ClassifyError()` routes compilation errors into 5 categories: `missing_import`, `syntax_error`, `compilation`, `runtime_error`, `unknown`
-- `buildHealPrompt()` now examines error type and injects error-specific guidance
+- `ClassifyError()` routes compilation errors into 6 categories: `missing_import`, `syntax_error`, `compilation`, `runtime_error`, `low_coverage`, `unknown`
+- `buildHealPrompt()` now examines error type and injects error-specific guidance, including `buildCoverageHealPrompt()` for low-coverage cases
 - `LogRun()` appends structured `RunRecord` to `~/.qagent/runs.jsonl` for analysis
+
+**Phase 3 Enhancements (Coverage-Driven Healing):**
+- **Low coverage (<80%) now triggers automatic healing**: After `RunTests()` completes with `Passed=true` and `Coverage < 80.0`, flip `Passed=false` and set `ErrorType="low_coverage"` to re-submit to LLM
+- **Coverage requirements in system prompt**: Added explicit rules to force LLM to test all branches, all error paths, and edge cases — mechanically produces 80%+ coverage without healing
+- **Dedicated coverage healing prompt**: `buildCoverageHealPrompt()` provides context-aware guidance focused on adding missing branches and edge cases, not fixing syntax
+- **Result**: Tight feedback loop that iteratively improves test coverage until it reaches 80%+ target
 
 ---
 

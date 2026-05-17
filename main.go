@@ -20,7 +20,8 @@ type RunResult struct {
 	Passed     bool
 	Attempts   int
 	FinalError string
-	ErrorType  string // from runner.DiagnoseTestFailure
+	ErrorType  string  // from runner.DiagnoseTestFailure
+	Coverage   float64 // test coverage percentage
 	ElapsedMs  int64
 }
 
@@ -59,6 +60,7 @@ func main() {
 		Attempts:   result.Attempts,
 		FinalError: result.FinalError,
 		ElapsedMs:  result.ElapsedMs,
+		Coverage:   result.Coverage,
 	}
 
 	if cfg.Quiet {
@@ -152,7 +154,13 @@ func RunPipeline(cfg Config) RunResult {
 			ui.LogStep(4, 4, "Running go test")
 		}
 
-		lastResult = runner.RunTests(filepath.Dir(testPath))
+		lastResult = runner.RunTests(filepath.Dir(testPath), cfg.Coverage)
+
+		// Treat low coverage (<80%) as a failure to trigger healing
+		if lastResult.Passed && lastResult.Coverage > 0 && lastResult.Coverage < 80.0 {
+			lastResult.Passed = false
+			lastResult.ErrorType = "low_coverage"
+		}
 
 		if lastResult.Passed {
 			if !cfg.Quiet {
@@ -162,6 +170,7 @@ func RunPipeline(cfg Config) RunResult {
 				TestFile: testPath,
 				Passed:   true,
 				Attempts: attempt + 1,
+				Coverage: lastResult.Coverage,
 			}
 		}
 
@@ -182,6 +191,7 @@ func RunPipeline(cfg Config) RunResult {
 				Attempts:   attempt + 1,
 				FinalError: lastResult.Stderr,
 				ErrorType:  diag.ErrorType,
+				Coverage:   lastResult.Coverage,
 			}
 		}
 
@@ -207,5 +217,6 @@ func RunPipeline(cfg Config) RunResult {
 		Attempts:   cfg.MaxHeals + 1,
 		FinalError: lastResult.Stderr,
 		ErrorType:  lastResult.ErrorType,
+		Coverage:   lastResult.Coverage,
 	}
 }

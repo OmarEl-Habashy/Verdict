@@ -27,6 +27,10 @@ func callModel(cfg Config, msgs []llm.LLMMessage) (string, error) {
 // buildHealPrompt constructs the repair prompt injected after a failed test run.
 // Customized based on error type for better LLM guidance.
 func buildHealPrompt(result runner.TestResult) string {
+	if result.ErrorType == "low_coverage" {
+		return buildCoverageHealPrompt(result.Coverage)
+	}
+
 	errorSection := result.Stderr
 	if len(errorSection) > 2000 {
 		errorSection = errorSection[:2000] + "\n... (truncated)"
@@ -64,5 +68,23 @@ func buildHealPrompt(result runner.TestResult) string {
 		result.ErrorType,
 		errorSection,
 		guidance,
+	)
+}
+
+// buildCoverageHealPrompt constructs a specialized healing prompt for insufficient test coverage.
+func buildCoverageHealPrompt(coverage float64) string {
+	return fmt.Sprintf(
+		"The tests compiled and passed but only achieved %.1f%% coverage. Target is 80%%.\n\n"+
+			"Add more test cases to cover:\n"+
+			"- All branches of if/else and switch statements\n"+
+			"- All error return paths\n"+
+			"- Edge cases: zero values, empty strings, nil inputs, negative numbers\n\n"+
+			"Output a complete corrected ```go block with additional test cases.\n\n"+
+			"General instructions:\n"+
+			"1. Do NOT change the package name.\n"+
+			"2. Do NOT add any new external dependencies.\n"+
+			"3. Output a COMPLETE test file — not a diff, not a partial snippet.\n"+
+			"4. Every test function must start with TestXxx and accept *testing.T.\n",
+		coverage,
 	)
 }

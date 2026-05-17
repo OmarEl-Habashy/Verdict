@@ -25,6 +25,7 @@ type Config struct {
 	DryRun     bool
 	NoHeal     bool
 	Quiet      bool
+	Coverage   bool // if true, collect test coverage with -coverprofile
 }
 
 func printUsage() {
@@ -37,6 +38,7 @@ Options:
   --model       Model name (overrides QAGENT_MODEL)
   --max-heals   Max heal attempts 0-5 (default: 2)
   --output-dir  Directory for generated test file
+  --coverage    Collect and report test coverage percentage
   --dry-run     Print system prompt and exit, do not call LLM
   --no-heal     Disable healing (equivalent to --max-heals 0)
   --quiet       Output JSON only, no colors or spinner
@@ -67,6 +69,9 @@ func parseArgs(args []string) (Config, error) {
 			continue
 		case "--quiet":
 			cfg.Quiet = true
+			continue
+		case "--coverage":
+			cfg.Coverage = true
 			continue
 		}
 
