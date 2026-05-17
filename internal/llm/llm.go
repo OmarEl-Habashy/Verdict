@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -98,6 +99,9 @@ func CallLLMOpenAI(url, apiKey string, req OpenAIRequest, timeoutSec int) (strin
 		return "", fmt.Errorf("callLLMOpenAI: marshaling request: %w", err)
 	}
 
+	url = strings.TrimSpace(url)
+	apiKey = strings.TrimSpace(apiKey)
+
 	httpReq, err := http.NewRequestWithContext(
 		context.Background(), http.MethodPost, url, bytes.NewReader(body),
 	)
@@ -131,7 +135,8 @@ func CallLLMOpenAI(url, apiKey string, req OpenAIRequest, timeoutSec int) (strin
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("callLLMOpenAI: server returned %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("callLLMOpenAI: server returned %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	data, err := io.ReadAll(resp.Body)

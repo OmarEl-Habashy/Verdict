@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,10 +22,19 @@ var verdictArt = []string{
 }
 
 const (
+	modeProvider = "provider"
 	modeInput   = "input"
 	modeBrowse  = "browse"
 	modeConfirm = "confirm"
 )
+
+type blinkMsg struct{}
+
+func blinkTick() tea.Cmd {
+	return tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
+		return blinkMsg{}
+	})
+}
 
 // ── Input field with real cursor support ──────────────────────────────────────
 
@@ -78,14 +88,20 @@ func (f inputField) home() inputField { f.cursor = 0; return f }
 func (f inputField) end() inputField  { f.cursor = len(f.value); return f }
 
 // view renders the field with the char under cursor highlighted.
-func (f inputField) view() string {
+func (f inputField) view(blink bool) string {
 	before := f.value[:f.cursor]
 	after := f.value[f.cursor:]
 	if len(after) == 0 {
+		if blink {
+			return colorInfo.Sprint(before) + " "
+		}
 		return colorInfo.Sprint(before) + colorActive.Sprint("█")
 	}
 	_, sz := utf8.DecodeRuneInString(after)
-	return colorInfo.Sprint(before) + colorActive.Sprint(after[:sz]) + colorInfo.Sprint(after[sz:])
+	if blink {
+		return colorInfo.Sprint(before) + colorInfo.Sprint(after[:sz]) + colorInfo.Sprint(after[sz:])
+	}
+	return colorInfo.Sprint(before) + colorActive.Sprint("█") + colorInfo.Sprint(after[sz:])
 }
 
 // ── Tree node ─────────────────────────────────────────────────────────────────
@@ -161,36 +177,68 @@ type TUIModel struct {
 	tree      []treeNode
 	visible   []int
 	cursor    int
-	selected  map[string]bool
-	confirmed bool
-	err       error
+	selected       map[string]bool
+	confirmed      bool
+	err            error
+	cursorBlink    bool
+	providerCursor int
+	provider       string
 }
 
 func InitialModel() TUIModel {
 	cwd, _ := os.Getwd()
 	return TUIModel{
-		mode:     modeInput,
+		mode:     modeProvider,
 		field:    newField(cwd),
 		selected: make(map[string]bool),
 	}
 }
 
-func (m TUIModel) Init() tea.Cmd { return nil }
+func (m TUIModel) Init() tea.Cmd { return blinkTick() }
 
 // ── Update ────────────────────────────────────────────────────────────────────
 
 func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(blinkMsg); ok {
+		m.cursorBlink = !m.cursorBlink
+		return m, blinkTick()
+	}
+
 	k, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
+
+	m.cursorBlink = false
+
 	switch m.mode {
+	case modeProvider:
+		return m.handleProvider(k)
 	case modeInput:
 		return m.handleInput(k)
 	case modeBrowse:
 		return m.handleBrowse(k)
 	case modeConfirm:
 		return m.handleConfirm(k)
+	}
+	return m, nil
+}
+
+func (m TUIModel) handleProvider(k tea.KeyMsg) (TUIModel, tea.Cmd) {
+	switch k.String() {
+	case "ctrl+c", "q", "esc":
+		return m, tea.Quit
+	case "up", "k":
+		m.providerCursor = 0
+	case "down", "j", "tab":
+		m.providerCursor = 1
+	case "enter", " ":
+		if m.providerCursor == 0 {
+			m.provider = "local"
+		} else {
+			m.provider = "cloud"
+		}
+		m.mode = modeInput
 	}
 	return m, nil
 }
@@ -408,6 +456,8 @@ func (m TUIModel) View() string {
 	colorMuted.Fprintf(&b, "  AI-powered Go test generation  ◆  v0.1\n\n")
 
 	switch m.mode {
+	case modeProvider:
+		m.renderProvider(&b)
 	case modeInput:
 		m.renderInput(&b)
 	case modeBrowse:
@@ -422,16 +472,31 @@ func (m TUIModel) View() string {
 	return b.String()
 }
 
+func (m TUIModel) renderProvider(b *strings.Builder) {
+	colorEmphasis.Fprintf(b, "  [1/4] Select Model Provider\n\n")
+
+	choices := []string{"Local (Ollama / Mistral)", "Cloud (OpenRouter / Claude)"}
+	for i, choice := range choices {
+		if m.providerCursor == i {
+			colorActive.Fprintf(b, "  ▸ %s\n", choice)
+		} else {
+			colorInfo.Fprintf(b, "    %s\n", choice)
+		}
+	}
+	b.WriteString("\n")
+	colorMuted.Fprintln(b, "  ↑↓ move   ↵ Enter select   q quit")
+}
+
 func (m TUIModel) renderInput(b *strings.Builder) {
-	colorEmphasis.Fprintf(b, "  [1/3] Enter directory path\n\n")
+	colorEmphasis.Fprintf(b, "  [2/4] Enter directory path\n\n")
 	colorMuted.Fprintf(b, "  ▶ ")
-	b.WriteString(m.field.view())
+	b.WriteString(m.field.view(m.cursorBlink))
 	b.WriteString("\n\n")
 	colorMuted.Fprintln(b, "  ← →  move cursor    Home/End  jump    ↵ Enter  open    ESC  quit")
 }
 
 func (m TUIModel) renderBrowse(b *strings.Builder) {
-	colorEmphasis.Fprintf(b, "  [2/3] Select files\n\n")
+	colorEmphasis.Fprintf(b, "  [3/4] Select files\n\n")
 	colorMuted.Fprintf(b, "  📁 %s\n\n", m.rootDir)
 
 	const maxVisible = 20
@@ -492,7 +557,7 @@ func (m TUIModel) renderBrowse(b *strings.Builder) {
 }
 
 func (m TUIModel) renderConfirm(b *strings.Builder) {
-	colorEmphasis.Fprintf(b, "  [3/3] Confirm & Run\n\n")
+	colorEmphasis.Fprintf(b, "  [4/4] Confirm & Run\n\n")
 	if len(m.selected) == 0 {
 		colorWarn.Fprintln(b, "  ⚠ No files selected — press B to go back.")
 		return
@@ -523,20 +588,20 @@ func (m TUIModel) renderConfirm(b *strings.Builder) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-func RunTUI() (string, []string, error) {
+func RunTUI() (string, []string, string, error) {
 	p := tea.NewProgram(InitialModel(), tea.WithAltScreen())
 	fm, err := p.Run()
 	if err != nil {
-		return "", nil, err
+		return "", nil, "", err
 	}
 	m := fm.(TUIModel)
 	if !m.confirmed || len(m.selected) == 0 {
-		return "", nil, nil
+		return "", nil, "", nil
 	}
 	var files []string
 	for f := range m.selected {
 		files = append(files, f)
 	}
 	sort.Strings(files)
-	return m.rootDir, files, nil
+	return m.rootDir, files, m.provider, nil
 }

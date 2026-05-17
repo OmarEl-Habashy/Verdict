@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"github.com/OmarEl-Habashy/qagent/internal/llm"
 	"github.com/OmarEl-Habashy/qagent/internal/loader"
 	"github.com/OmarEl-Habashy/qagent/internal/parser"
@@ -26,15 +28,33 @@ type RunResult struct {
 }
 
 func main() {
+	_ = godotenv.Load() // Load .env file if it exists, ignore errors
+
 	// If no arguments provided, launch interactive TUI
 	if len(os.Args) == 1 {
-		_, allFiles, err := ui.RunInteractiveMode()
+		_, allFiles, provider, err := ui.RunInteractiveMode()
 		if err != nil {
 			os.Exit(1)
 		}
 		// User exited without confirming — clean exit.
 		if len(allFiles) == 0 {
 			os.Exit(0)
+		}
+
+		if provider == "local" {
+			if os.Getenv("QAGENT_MODEL") == "" {
+				os.Setenv("QAGENT_MODEL", "ollama/mistral")
+			}
+			if os.Getenv("QAGENT_MODEL_URL") == "" {
+				os.Setenv("QAGENT_MODEL_URL", "http://localhost:11434/api/chat")
+			}
+		} else if provider == "cloud" {
+			if os.Getenv("QAGENT_MODEL") == "" {
+				os.Setenv("QAGENT_MODEL", "anthropic/claude-3.5-sonnet")
+			}
+			if os.Getenv("QAGENT_MODEL_URL") == "" {
+				os.Setenv("QAGENT_MODEL_URL", "https://openrouter.ai/api/v1/chat/completions")
+			}
 		}
 
 		// Run tests on confirmed files.
