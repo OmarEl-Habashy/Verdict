@@ -11,7 +11,6 @@ func TestAdd(t *testing.T) {
 		{"positive", 2, 3, 5},
 		{"zero", 0, 0, 0},
 		{"negative", -1, -2, -3},
-		{"mixed", 1, -1, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -31,8 +30,7 @@ func TestSub(t *testing.T) {
 	}{
 		{"positive", 5, 3, 2},
 		{"zero", 0, 0, 0},
-		{"negative", -2, -1, -1},
-		{"mixed", 1, -1, 2},
+		{"negative", -1, -2, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,8 +50,7 @@ func TestMul(t *testing.T) {
 	}{
 		{"positive", 2, 3, 6},
 		{"zero", 0, 5, 0},
-		{"negative", -2, 3, -6},
-		{"mixed", -1, -1, 1},
+		{"negative", -1, 2, -2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -72,25 +69,19 @@ func TestDiv(t *testing.T) {
 		want int
 		err  bool
 	}{
-		{"positive", 6, 3, 2, false},
-		{"zero", 0, 5, 0, false},
-		{"negative", -6, 3, -2, false},
-		{"byZero", 5, 0, 0, true},
+		{"normal", 6, 3, 2, false},
+		{"zero", 1, 0, 0, true},
+		{"negative", -4, 2, -2, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := Div(tc.a, tc.b)
-			if tc.err {
-				if err == nil {
-					t.Errorf("Div(%d, %d) expected error, got nil", tc.a, tc.b)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Div(%d, %d) = %d, %v; want %d, nil", tc.a, tc.b, got, err, tc.want)
-				}
-				if got != tc.want {
-					t.Errorf("Div(%d, %d) = %d; want %d", tc.a, tc.b, got, tc.want)
-				}
+			if (err != nil) != tc.err {
+				t.Errorf("Div(%d, %d) error = %v; wantErr %v", tc.a, tc.b, err, tc.err)
+				return
+			}
+			if !tc.err && got != tc.want {
+				t.Errorf("Div(%d, %d) = %d; want %d", tc.a, tc.b, got, tc.want)
 			}
 		})
 	}

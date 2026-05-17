@@ -187,12 +187,14 @@ qagent/
 
 | Package | May import |
 |---------|-----------|
-| `main` | all internal packages + `os fmt time path/filepath` |
+| `main` | all internal packages + `os fmt time path/filepath encoding/json` |
 | `internal/loader` | `os strings fmt path/filepath` only |
 | `internal/llm` | `net/http encoding/json io fmt time context` only |
 | `internal/parser` | `strings fmt os path/filepath` only |
 | `internal/runner` | `os/exec bytes context time strings fmt` only |
 | `internal/ui` | `fmt time os fatih/color bubbletea bubbles` only |
+
+**Phase 2 Enhancement:** `main` now imports `encoding/json` for structured logging via `LogRun()`.
 
 `internal/ui` must **never** import `internal/llm`, `internal/runner`, or `internal/loader`.
 `internal/loader` must **never** import any other internal package.
@@ -223,7 +225,19 @@ type RunResult struct {
     FinalError string
     ElapsedMs  int64
 }
+
+type RunRecord struct {
+    File      string `json:"file"`
+    Model     string `json:"model"`
+    Attempts  int    `json:"attempts"`
+    Passed    bool   `json:"passed"`
+    ErrorType string `json:"error_type,omitempty"`
+    Ms        int64  `json:"ms"`
+    Timestamp string `json:"timestamp"`
+}
 ```
+
+**Phase 2 Enhancement:** `RunRecord` captures structured telemetry to `~/.qagent/runs.jsonl` for failure analysis and pattern detection.
 
 ---
 
@@ -233,13 +247,18 @@ type RunResult struct {
 parseArgs → checkPrerequisites → LoadFile → BuildSystemPrompt
   └─ for attempt := 0; attempt <= cfg.MaxHeals; attempt++:
          callModel → ExtractGoBlock → WriteTestFile → RunTests
-             ├─ passed  → PrintSummary → os.Exit(0)
-             └─ failed  → buildHealPrompt → append to messages → continue
-  └─ exhausted → PrintSummary → CleanTestFile → os.Exit(1)
+             ├─ passed  → PrintSummary → LogRun (telemetry) → os.Exit(0)
+             └─ failed  → ClassifyError (smart router) → buildHealPrompt (context-aware) → append to messages → continue
+  └─ exhausted → PrintSummary → CleanTestFile → LogRun (telemetry) → os.Exit(1)
 ```
 
 The heal loop counter always increments. No early-break that skips the counter.
 `MaxHeals` default is 2. Hard ceiling is 5 (`healCeiling` const).
+
+**Phase 2 Enhancements:**
+- `ClassifyError()` routes compilation errors into 5 categories: `missing_import`, `syntax_error`, `compilation`, `runtime_error`, `unknown`
+- `buildHealPrompt()` now examines error type and injects error-specific guidance
+- `LogRun()` appends structured `RunRecord` to `~/.qagent/runs.jsonl` for analysis
 
 ---
 
@@ -285,8 +304,12 @@ The heal loop counter always increments. No early-break that skips the counter.
 | Passing full stderr to LLM | Cap at 2000 chars, append `\n...(truncated)` |
 | Reading API key from CLI flag | `os.Getenv("QAGENT_API_KEY")` only |
 | Starting bubbletea in a pipe/CI context | Check `isTTY()` first |
-| Adding `package` line to generated test that differs from source | Verify with `strings.HasPrefix` after extraction |
+| Adding `package` line to generated test that differs from source | Verify with `strings.HasPrefix` after extraction || Not classifying errors before healing | Use `ClassifyError()` to provide context-aware guidance |
+| Swallowing stderr on final failure | Log to `~/.qagent/runs.jsonl` via `LogRun()` for pattern analysis |
 
+**Phase 2 Patterns:**
+- Smart Router pattern: Always classify errors before crafting heal prompts
+- Telemetry pattern: Append immutable `RunRecord` to JSONL log; never overwrite
 ---
 
 ## Build Commands

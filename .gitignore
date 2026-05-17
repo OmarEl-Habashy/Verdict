@@ -10,3 +10,6 @@ testdata/*_test.go
 # Editor / OS
 .vscode/
 *.exe
+
+# Achievements
+achievements.md

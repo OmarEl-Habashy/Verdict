@@ -15,15 +15,16 @@ const maxStderrLen = 2000
 
 // TestResult holds the outcome of a go test run.
 type TestResult struct {
-	Passed   bool
-	Stdout   string
-	Stderr   string
-	ExitCode int
+	Passed    bool
+	Stdout    string
+	Stderr    string
+	ExitCode  int
+	ErrorType string // "missing_import", "syntax_error", "compilation", "runtime_error", "unknown"
 }
 
 // RunTests executes `go test -v -count=1 -timeout=30s ./...` in dir.
 // The subprocess is bounded by a 60s context timeout.
-// Stderr is capped at 2000 chars before being stored (see Rule 9).
+// Stderr is capped at 2000 chars before being stored (see Rule 10).
 func RunTests(dir string) TestResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -47,6 +48,8 @@ func RunTests(dir string) TestResult {
 	}
 
 	stderrStr := stderr.String()
+	stdoutStr := stdout.String()
+
 	// Surface go vet errors distinctly.
 	if strings.Contains(stderrStr, "# ") && strings.Contains(stderrStr, "go vet") {
 		stderrStr = "[vet error] " + stderrStr
@@ -56,11 +59,16 @@ func RunTests(dir string) TestResult {
 		stderrStr = stderrStr[:maxStderrLen] + "\n... (truncated to 2000 chars)"
 	}
 
+	// Classify error from both stdout and stderr (panics may be in stdout).
+	combinedErr := stderrStr + "\n" + stdoutStr
+	errType := ClassifyError(combinedErr)
+
 	return TestResult{
-		Passed:   exitCode == 0,
-		Stdout:   stdout.String(),
-		Stderr:   stderrStr,
-		ExitCode: exitCode,
+		Passed:    exitCode == 0,
+		Stdout:    stdoutStr,
+		Stderr:    stderrStr,
+		ExitCode:  exitCode,
+		ErrorType: errType,
 	}
 }
 

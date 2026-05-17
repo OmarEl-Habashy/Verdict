@@ -7,6 +7,8 @@
 
 ## DAY 1 — Foundation & Context Engine
 
+Status: completed on 2026-05-17 (go test -v -count=1 ./...)
+
 ### Hour 1 — Project Scaffold & Module Init
 
 **Goal:** Runnable skeleton with dependency resolution locked.
@@ -610,6 +612,146 @@ func MergeConfig(file FileConfig, cli Config) Config
 echo '{"model_url":"http://localhost:11434/api/chat","model_name":"gemma3"}' > qagent.json
 go run main.go --file ./testdata/math.go
 ```
+
+---
+
+---
+
+## PHASE 2 — Smart Router & Failure Telemetry
+
+Status: Completed on 2026-05-17
+
+### Smart Error Classification (Phase 2.1)
+
+**Goal:** Dynamically classify compilation errors into 5 categories to enable targeted healing strategies.
+
+**File:** `internal/runner/runner.go`
+
+**New Function:**
+```go
+func ClassifyError(stderr string) string {
+    lower := strings.ToLower(stderr)
+    if strings.Contains(lower, "undefined") || strings.Contains(lower, "could not import") {
+        return "missing_import"
+    }
+    if strings.Contains(lower, "syntax error") || strings.Contains(lower, "expected") {
+        return "syntax_error"
+    }
+    if strings.Contains(lower, "cannot") || strings.Contains(lower, "invalid") {
+        return "compilation"
+    }
+    if strings.Contains(lower, "panic") || strings.Contains(lower, "fatal error") {
+        return "runtime_error"
+    }
+    return "unknown"
+}
+```
+
+**TestResult Struct Enhancement:**
+```go
+type TestResult struct {
+    Passed    bool      // existing
+    Stdout    string    // existing
+    Stderr    string    // existing
+    ExitCode  int       // existing
+    ErrorType string    // NEW — values: missing_import, syntax_error, compilation, runtime_error, unknown
+}
+```
+
+**Pipeline Change:** `RunTests()` now calls `ClassifyError(stderr)` and populates `ErrorType`.
+
+---
+
+### Adaptive Healing via Error Type (Phase 2.2)
+
+**Goal:** Inject error-type-specific guidance into heal prompts to improve LLM repair accuracy.
+
+**File:** `main.go` — Enhanced function: `buildHealPrompt(result runner.TestResult) string`
+
+**New Logic:**
+```go
+func buildHealPrompt(result runner.TestResult) string {
+    errorSection := result.Stderr
+    if len(errorSection) > 2000 {
+        errorSection = errorSection[:2000] + "\n... (truncated)"
+    }
+
+    var guidance string
+    switch result.ErrorType {
+    case "missing_import":
+        guidance = "This is a dependency/import error. Add the missing import at the top of the file. Do NOT change the logic or package name."
+    case "syntax_error":
+        guidance = "This is a structural Go syntax error. Check parentheses, braces, and function signatures. Do NOT change test logic."
+    case "compilation":
+        guidance = "This is a compilation error. Review undefined symbols and type mismatches. Ensure all referenced types exist."
+    case "runtime_error":
+        guidance = "This is a runtime error (panic). Verify test setup and teardown. Handle nil pointers and edge cases."
+    default:
+        guidance = "Fix the errors indicated below."
+    }
+
+    return fmt.Sprintf(
+        "The Go test file you generated failed. Error type: %s.\n\n"+
+            "--- ERRORS ---\n%s\n--- END ERRORS ---\n\n"+
+            "Smart guidance for this error type:\n%s\n\n"+
+            "General instructions:\n1. Do NOT change the package name.\n"+
+            "2. Do NOT add new external dependencies.\n"+
+            "3. Output a complete corrected ```go code block — not a diff.\n"+
+            "4. Every test function must start with Test and accept *testing.T.",
+        result.ErrorType, errorSection, guidance)
+}
+```
+
+**Architectural Benefit:** Demonstrates "dynamic steering of the LLM based on programmatic environment checks" — key for Advanced AI projects.
+
+---
+
+### Structured Failure Logging (Phase 2.3)
+
+**Goal:** Capture all runs (passed and failed) to `~/.qagent/runs.jsonl` for pattern analysis in v2.
+
+**File:** `main.go`
+
+**New Struct:**
+```go
+type RunRecord struct {
+    File      string `json:"file"`
+    Model     string `json:"model"`
+    Attempts  int    `json:"attempts"`
+    Passed    bool   `json:"passed"`
+    ErrorType string `json:"error_type,omitempty"`
+    Ms        int64  `json:"ms"`
+    Timestamp string `json:"timestamp"`
+}
+```
+
+**New Function:**
+```go
+func LogRun(rec RunRecord) {
+    logPath := filepath.Join(os.Getenv("HOME"), ".qagent", "runs.jsonl")
+    dir := filepath.Dir(logPath)
+    if err := os.MkdirAll(dir, 0755); err != nil {
+        return // silently fail — don't break pipeline
+    }
+    f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+        return
+    }
+    defer f.Close()
+    data, _ := json.Marshal(rec)
+    f.Write(append(data, '\n'))
+}
+```
+
+**Log Entry Example:**
+```json
+{"file":"math.go","model":"gemma3","attempts":1,"passed":true,"error_type":"","ms":14200,"timestamp":"2026-05-17T10:30:45Z"}
+{"file":"http_client.go","model":"gemma3","attempts":2,"passed":false,"error_type":"missing_import","ms":28400,"timestamp":"2026-05-17T10:31:02Z"}
+```
+
+**Pipeline Integration:** After `RunPipeline()` completes (success or failure), call `LogRun()` in `main()`.
+
+**Future Analysis:** After 50+ runs, analyze `~/.qagent/runs.jsonl` to identify which error types heal successfully and which don't — foundation for smart heal strategy selection.
 
 ---
 

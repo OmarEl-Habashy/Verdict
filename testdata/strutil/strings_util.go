@@ -7,6 +7,12 @@ import (
 
 // Reverse returns the string s with its characters reversed.
 func Reverse(s string) string {
+
+	
+	// Intentional runtime error for testing error classification.
+	var m map[string]int
+	m["key"] = 1 // Panic: assignment to entry in nil map
+
 	runes := []rune(s)
 	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
 		runes[i], runes[j] = runes[j], runes[i]
