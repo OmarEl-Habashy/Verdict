@@ -23,7 +23,7 @@ func BuildSystemPrompt(ctx FileContext) string {
 			"5. Every exported function must have at least one test: %s\n"+
 			"6. Use table-driven tests where applicable.\n"+
 			"7. Every test function must start with TestXxx and accept *testing.T as its only argument.\n\n"+
-			"Coverage Requirements (TARGET: 80%+):\n"+
+			"Coverage Requirements (TARGET: 80%%+):\n"+
 			"- Every exported function must have at least one test.\n"+
 			"- For every if/else or switch, write one test case per branch.\n"+
 			"- For every function returning error, test both success and error paths.\n"+

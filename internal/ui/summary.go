@@ -102,3 +102,11 @@ func center(s string, width int) string {
 	right := pad - left
 	return repeat(" ", left) + s + repeat(" ", right)
 }
+
+// LogBatchSummary prints a summary box for batch (interactive) mode runs.
+func LogBatchSummary(passed, failed int) {
+	fmt.Println("  ╔════════════════════════════════════════╗")
+	fmt.Printf("  ║  Results: %d passed, %d failed        ║\n", passed, failed)
+	fmt.Println("  ╚════════════════════════════════════════╝")
+}
+

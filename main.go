@@ -26,6 +26,69 @@ type RunResult struct {
 }
 
 func main() {
+	// If no arguments provided, launch interactive TUI
+	if len(os.Args) == 1 {
+		_, allFiles, err := ui.RunInteractiveMode()
+		if err != nil {
+			os.Exit(1)
+		}
+
+		// Process each file with test execution
+		successCount := 0
+		failureCount := 0
+
+		for i, file := range allFiles {
+			ui.LogStep(i+1, len(allFiles), fmt.Sprintf("Testing %s", filepath.Base(file)))
+
+			cfg := Config{
+				TargetFile: file,
+				MaxHeals:   2,
+				Coverage:   true,
+				ModelName:  os.Getenv("QAGENT_MODEL"),
+				ModelURL:   os.Getenv("QAGENT_MODEL_URL"),
+				APIKey:     os.Getenv("QAGENT_API_KEY"),
+			}
+
+			if cfg.ModelName == "" {
+				cfg.ModelName = "ollama/mistral"
+			}
+			if cfg.ModelURL == "" {
+				cfg.ModelURL = "http://localhost:11434/api/chat"
+			}
+
+			start := time.Now()
+			result := RunPipeline(cfg)
+			elapsed := time.Since(start)
+			result.ElapsedMs = elapsed.Milliseconds()
+
+			if result.Passed {
+				successCount++
+				ui.LogSuccess("Passed: %s", filepath.Base(file))
+			} else {
+				failureCount++
+				ui.LogError("Failed: %s", filepath.Base(file))
+			}
+
+			// Log individual run
+			LogRun(RunRecord{
+				File:      filepath.Base(file),
+				Model:     cfg.ModelName,
+				Attempts:  result.Attempts,
+				Passed:    result.Passed,
+				ErrorType: result.ErrorType,
+				Ms:        result.ElapsedMs,
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
+		}
+
+		fmt.Println()
+		ui.LogBatchSummary(successCount, failureCount)
+		fmt.Println()
+
+		return
+	}
+
+	// CLI mode
 	cfg, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n\n", err)
