@@ -39,8 +39,11 @@ func buildHealPrompt(result runner.TestResult) string {
 	var guidance string
 	switch result.ErrorType {
 	case "missing_import":
-		guidance = "This is a dependency/import error. Do NOT change the logic or package name. Only fix the import statements. " +
-			"Check what packages are actually used in the test and import them correctly from the standard library or the source file's imports."
+		guidance = "This is an import error: a function or type is undefined, meaning the package isn't imported.\n" +
+			"FIX: Add the missing package to the imports block. Standard library packages (fmt, strings, time, etc.) are always allowed.\n" +
+			"Example: If you see 'undefined: fmt', add `import \"fmt\"` to your imports.\n" +
+			"Example: If you see 'undefined: strings', add `import \"strings\"` to your imports.\n" +
+			"Do NOT remove any logic. Do NOT change the package name."
 	case "syntax_error":
 		guidance = "This is a structural Go syntax error. Check your brackets, parentheses, semicolons, and formatting. " +
 			"Common issues: mismatched braces, missing commas in struct definitions, incorrect method receivers."

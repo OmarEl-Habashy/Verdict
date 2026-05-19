@@ -1,1 +1,7 @@
 mode: set
+github.com/OmarEl-Habashy/qagent/testdata/math/math.go:6.24,8.2 1 1
+github.com/OmarEl-Habashy/qagent/testdata/math/math.go:11.24,13.2 1 1
+github.com/OmarEl-Habashy/qagent/testdata/math/math.go:16.24,18.2 1 1
+github.com/OmarEl-Habashy/qagent/testdata/math/math.go:21.33,22.12 1 1
+github.com/OmarEl-Habashy/qagent/testdata/math/math.go:22.12,24.3 1 1
+github.com/OmarEl-Habashy/qagent/testdata/math/math.go:25.2,25.19 1 1

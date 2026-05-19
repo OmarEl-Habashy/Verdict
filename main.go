@@ -27,86 +27,189 @@ type RunResult struct {
 	ElapsedMs  int64
 }
 
+// loadEnvFile searches for .env starting from the executable directory and walking up the tree
+func loadEnvFile() {
+	// Get the directory of the executable
+	ex, err := os.Executable()
+	if err != nil {
+		_ = godotenv.Load() // Fallback to CWD
+		return
+	}
+	exePath := filepath.Dir(ex)
+
+	// Search up the directory tree for .env
+	current := exePath
+	for {
+		envPath := filepath.Join(current, ".env")
+		if _, err := os.Stat(envPath); err == nil {
+			// .env found, load it
+			_ = godotenv.Load(envPath)
+			return
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			// Reached root directory
+			break
+		}
+		current = parent
+	}
+
+	// Fallback: try loading from CWD
+	_ = godotenv.Load()
+}
+
 func main() {
-	_ = godotenv.Load() // Load .env file if it exists, ignore errors
+	loadEnvFile() // Load .env file from exe dir or parent directories
 
 	// If no arguments provided, launch interactive TUI
 	if len(os.Args) == 1 {
-		_, allFiles, provider, selectedModel, err := ui.RunInteractiveMode()
-		if err != nil {
-			os.Exit(1)
+		// Outer loop: allows returning to TUI when user chooses "return to menu"
+		for {
+			_, allFiles, provider, selectedModel, err := ui.RunInteractiveMode()
+			if err != nil {
+				os.Exit(1)
+			}
+			// User exited without confirming — clean exit.
+			if len(allFiles) == 0 {
+				os.Exit(0)
+			}
+
+			if provider == "local" {
+				modelName := selectedModel
+				if modelName == "" {
+					modelName = "ollama/mistral"
+				}
+				os.Setenv("QAGENT_MODEL", modelName)
+				os.Setenv("QAGENT_MODEL_URL", "http://localhost:11434/api/chat")
+				os.Setenv("QAGENT_API_KEY", "") // Clear API key for local provider
+			} else if provider == "cloud" {
+				if os.Getenv("QAGENT_MODEL") == "" {
+					os.Setenv("QAGENT_MODEL", "anthropic/claude-3.5-sonnet")
+				}
+				if os.Getenv("QAGENT_MODEL_URL") == "" {
+					os.Setenv("QAGENT_MODEL_URL", "https://openrouter.ai/api/v1/chat/completions")
+				}
+			}
+
+			// Run tests on confirmed files.
+			successCount := 0
+			failureCount := 0
+			returnToMenu := false
+
+			for i, file := range allFiles {
+				ui.LogStep(i+1, len(allFiles), fmt.Sprintf("Testing %s", filepath.Base(file)))
+
+				cfg := Config{
+					TargetFile: file,
+					MaxHeals:   2,
+					Coverage:   true,
+					ModelName:  os.Getenv("QAGENT_MODEL"),
+					ModelURL:   os.Getenv("QAGENT_MODEL_URL"),
+					APIKey:     os.Getenv("QAGENT_API_KEY"),
+				}
+				if cfg.ModelName == "" {
+					cfg.ModelName = "ollama/mistral"
+				}
+				if cfg.ModelURL == "" {
+					cfg.ModelURL = "http://localhost:11434/api/chat"
+				}
+
+				start := time.Now()
+				result := RunPipeline(cfg)
+				elapsed := time.Since(start)
+				result.ElapsedMs = elapsed.Milliseconds()
+
+				if result.Passed {
+					successCount++
+					ui.LogSuccess("Passed: %s", filepath.Base(file))
+				} else {
+					failureCount++
+					ui.LogError("Failed: %s", filepath.Base(file))
+
+					// Show diagnostic for failed test
+					fmt.Println()
+					ui.LogWarn("Diagnostic:")
+					diagnostic := ui.PostRunDiagnostic(result.ErrorType, result.FinalError)
+					fmt.Println(diagnostic)
+				}
+
+				// Show post-run menu
+				choice := ui.PostRunMenu(result.Passed, result.TestFile, len(allFiles), i)
+
+				// Handle cleanup and navigation based on choice
+				if choice == ui.ChoiceNext || choice == ui.ChoiceReturnMenu {
+					// Delete test file if test failed before moving on
+					if !result.Passed && result.TestFile != "" {
+						os.Remove(result.TestFile)
+					}
+				}
+				switch choice {
+				case ui.ChoiceExtendHeal:
+					if !result.Passed {
+						fmt.Println()
+						ui.LogStep(0, 0, "Attempting 2 additional healing loops...")
+						extCfg := cfg
+						extCfg.MaxHeals = result.Attempts + 2 // Add 2 more attempts
+						extResult := RunPipeline(extCfg)
+						extResult.ElapsedMs = time.Since(start).Milliseconds()
+
+						if extResult.Passed {
+							successCount++
+							failureCount--
+							ui.LogSuccess("Passed with extended healing: %s", filepath.Base(file))
+							result = extResult
+						} else {
+							ui.LogError("Still failed after extended healing")
+							fmt.Println()
+							ui.LogWarn("Diagnostic:")
+							diagnostic := ui.PostRunDiagnostic(extResult.ErrorType, extResult.FinalError)
+							fmt.Println(diagnostic)
+
+							// Ask again what to do
+							choice = ui.PostRunMenu(extResult.Passed, extResult.TestFile, len(allFiles), i)
+
+							// Handle cleanup if returning or continuing
+							if (choice == ui.ChoiceNext || choice == ui.ChoiceReturnMenu) && !extResult.Passed && extResult.TestFile != "" {
+								os.Remove(extResult.TestFile)
+							}
+							if choice == ui.ChoiceReturnMenu {
+								returnToMenu = true
+								break // Break inner loop to end file loop
+							}
+						}
+					}
+
+				case ui.ChoiceReturnMenu:
+					returnToMenu = true
+					break // Break file loop to return to TUI
+				}
+
+				LogRun(RunRecord{
+					File:      filepath.Base(file),
+					Model:     cfg.ModelName,
+					Attempts:  result.Attempts,
+					Passed:    result.Passed,
+					ErrorType: result.ErrorType,
+					Ms:        result.ElapsedMs,
+					Timestamp: time.Now().Format(time.RFC3339),
+				})
+			}
+
+			// If user chose to return to menu, loop back to show TUI again
+			if returnToMenu {
+				fmt.Println()
+				ui.LogInfo("Returning to main menu...")
+				fmt.Println()
+				continue // Loop back to RunInteractiveMode()
+			}
+
+			// Normal batch completion
+			fmt.Println()
+			ui.LogBatchSummary(successCount, failureCount)
+			fmt.Println()
+			break // Exit interactive mode
 		}
-		// User exited without confirming — clean exit.
-		if len(allFiles) == 0 {
-			os.Exit(0)
-		}
-
-		if provider == "local" {
-			modelName := selectedModel
-			if modelName == "" {
-				modelName = "ollama/mistral"
-			}
-			os.Setenv("QAGENT_MODEL", modelName)
-			os.Setenv("QAGENT_MODEL_URL", "http://localhost:11434/api/chat")
-			os.Setenv("QAGENT_API_KEY", "") // Clear API key for local provider
-		} else if provider == "cloud" {
-			if os.Getenv("QAGENT_MODEL") == "" {
-				os.Setenv("QAGENT_MODEL", "anthropic/claude-3.5-sonnet")
-			}
-			if os.Getenv("QAGENT_MODEL_URL") == "" {
-				os.Setenv("QAGENT_MODEL_URL", "https://openrouter.ai/api/v1/chat/completions")
-			}
-		}
-
-		// Run tests on confirmed files.
-		successCount := 0
-		failureCount := 0
-
-		for i, file := range allFiles {
-			ui.LogStep(i+1, len(allFiles), fmt.Sprintf("Testing %s", filepath.Base(file)))
-
-			cfg := Config{
-				TargetFile: file,
-				MaxHeals:   2,
-				Coverage:   true,
-				ModelName:  os.Getenv("QAGENT_MODEL"),
-				ModelURL:   os.Getenv("QAGENT_MODEL_URL"),
-				APIKey:     os.Getenv("QAGENT_API_KEY"),
-			}
-			if cfg.ModelName == "" {
-				cfg.ModelName = "ollama/mistral"
-			}
-			if cfg.ModelURL == "" {
-				cfg.ModelURL = "http://localhost:11434/api/chat"
-			}
-
-			start := time.Now()
-			result := RunPipeline(cfg)
-			elapsed := time.Since(start)
-			result.ElapsedMs = elapsed.Milliseconds()
-
-			if result.Passed {
-				successCount++
-				ui.LogSuccess("Passed: %s", filepath.Base(file))
-			} else {
-				failureCount++
-				ui.LogError("Failed: %s", filepath.Base(file))
-			}
-
-			LogRun(RunRecord{
-				File:      filepath.Base(file),
-				Model:     cfg.ModelName,
-				Attempts:  result.Attempts,
-				Passed:    result.Passed,
-				ErrorType: result.ErrorType,
-				Ms:        result.ElapsedMs,
-				Timestamp: time.Now().Format(time.RFC3339),
-			})
-		}
-
-		fmt.Println()
-		ui.LogBatchSummary(successCount, failureCount)
-		fmt.Println()
 		return
 	}
 

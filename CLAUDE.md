@@ -292,6 +292,15 @@ The heal loop counter always increments. No early-break that skips the counter.
 - **Dedicated coverage healing prompt**: `buildCoverageHealPrompt()` provides context-aware guidance focused on adding missing branches and edge cases, not fixing syntax
 - **Result**: Tight feedback loop that iteratively improves test coverage until it reaches 80%+ target
 
+**Phase 4 Enhancements (Interactive Post-Run Flow):**
+- **Post-run diagnostics**: After test completion, display brief explanation of failure reason (`missing_import`, `syntax_error`, `compilation`, `runtime_error`, `low_coverage`, `unknown`)
+- **Extended healing option**: Users can opt for +2 additional healing attempts without restarting
+- **Interactive post-run menu**: After each file test, choose:
+  - Continue to next file
+  - Try 2 more healing attempts (if failed)
+  - Return to main menu (which restarts the TUI for new directory/file selection)
+- **No auto-exit**: Program no longer terminates immediately after test completion — user drives the flow
+
 ---
 
 ## Testing Conventions

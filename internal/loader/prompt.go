@@ -18,11 +18,13 @@ func BuildSystemPrompt(ctx FileContext) string {
 			"Rules:\n"+
 			"1. Output ONLY a single ```go ... ``` code block. No explanations, no prose.\n"+
 			"2. The test file must start with: package %s\n"+
-			"3. Import only \"testing\" and standard library packages that are already imported in the source.\n"+
-			"4. Do NOT import any external packages that are not in the source file.\n"+
-			"5. Every exported function must have at least one test: %s\n"+
-			"6. Use table-driven tests where applicable.\n"+
-			"7. Every test function must start with TestXxx and accept *testing.T as its only argument.\n\n"+
+			"3. Import \"testing\" and ANY standard library packages your test code uses (e.g., \"fmt\", \"strings\", \"time\", etc.).\n"+
+			"4. Do NOT import any external packages (packages not in the Go standard library).\n"+
+			"5. CRITICAL: If you use fmt.Errorf, fmt.Sprintf, or any fmt functions, you MUST import \"fmt\" in the imports block.\n"+
+			"6. CRITICAL: Check every function and method call in your test — ensure every package it comes from is imported.\n"+
+			"7. Every exported function must have at least one test: %s\n"+
+			"8. Use table-driven tests where applicable.\n"+
+			"9. Every test function must start with TestXxx and accept *testing.T as its only argument.\n\n"+
 			"Coverage Requirements (TARGET: 80%%+):\n"+
 			"- Every exported function must have at least one test.\n"+
 			"- For every if/else or switch, write one test case per branch.\n"+

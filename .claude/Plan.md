@@ -1133,6 +1133,155 @@ go run main.go \
 
 ---
 
+## PHASE 4 — Interactive Post-Run Flow
+
+**Hours 17–20 of Phase 4 (executed in current session)**
+
+### Hour 17 — Post-Run Diagnostics
+
+**Goal:** Display meaningful error explanation after test failure.
+
+**File:** `internal/ui/postrun.go` (NEW)
+
+**Function: `PostRunDiagnostic(errorType, stderr string)`**
+- Maps 6 error types to human-readable explanations:
+  - `missing_import`: "LLM forgot to import a required package"
+  - `syntax_error`: "Go syntax error in generated test"
+  - `compilation`: "LLM produced invalid Go code"
+  - `runtime_error`: "Test logic doesn't match source behavior"
+  - `low_coverage`: "Tests only cover <80% of branches"
+  - `unknown`: "Unknown error — check stderr below"
+- Displays in cyan box with error context (first 500 chars of stderr)
+- Called from `main.go` immediately after `RunPipeline()` if failed
+
+**Integration in main.go:**
+```go
+if !result.Passed {
+    ui.PostRunDiagnostic(result.ErrorType, result.Stderr)
+}
+```
+
+---
+
+### Hour 18 — Post-Run Interactive Menu
+
+**Goal:** Pause execution and let user choose next action (continue, extend healing, return to menu).
+
+**Function: `PostRunMenu(passed bool, fileName string) PostRunMenuChoice`**
+
+**Struct:**
+```go
+type PostRunMenuChoice int
+const (
+    ChoiceNext PostRunMenuChoice = iota
+    ChoiceExtendHeal
+    ChoiceReturnMenu
+)
+```
+
+**Menu Logic:**
+```
+If PASSED:
+  [1] Continue to next file
+  [2] Return to main menu
+
+If FAILED:
+  [1] Continue to next file (skip healing)
+  [2] Try 2 more healing attempts
+  [3] Return to main menu
+```
+
+**User Input:**
+- Press `1`, `2`, or `3` to select
+- Enter repeats prompt
+- No auto-exit
+
+---
+
+### Hour 19 — Extended Healing Loop
+
+**Goal:** Allow user to request +2 additional healing attempts without restarting.
+
+**Integration in main.go file loop:**
+```go
+for _, file := range files {
+    result := RunPipeline(cfg)
+    
+    ui.PostRunDiagnostic(result.ErrorType, result.Stderr)
+    choice := ui.PostRunMenu(result.Passed, filepath.Base(file))
+    
+    if choice == ui.ChoiceExtendHeal && !result.Passed {
+        extCfg := cfg
+        extCfg.MaxHeals = result.Attempts + 2  // +2 attempts
+        extResult := RunPipeline(extCfg)
+        
+        // Show diagnostic again for new result
+        ui.PostRunDiagnostic(extResult.ErrorType, extResult.Stderr)
+        choice = ui.PostRunMenu(extResult.Passed, filepath.Base(file))
+        result = extResult
+    }
+    
+    if choice == ui.ChoiceReturnMenu {
+        goto menuReturn
+    }
+    // else: continue to next file
+}
+
+menuReturn:
+    // Return to TUI for directory/model re-selection
+```
+
+**Guarantees:**
+- Total attempts never exceed MaxHeals + 2
+- User sees diagnostic + menu after each healing attempt
+- Extended healing preserves all prior error context
+
+---
+
+### Hour 20 — Return-to-Menu Navigation
+
+**Goal:** Allow user to restart TUI for new directory, model selection.
+
+**Navigation in main.go:**
+```go
+for {
+    // TUI for directory/model selection
+    rootDir, files, provider, selectedModel, err := ui.RunInteractiveMode()
+    if err != nil {
+        return 1
+    }
+    
+    // Build config from user choices
+    cfg := Config{
+        TargetFile: "", // filled per file
+        ModelName: selectedModel,
+        ModelURL: ...,
+        // ...
+    }
+    
+    // File loop
+    for _, file := range files {
+        cfg.TargetFile = file
+        result := RunPipeline(cfg)
+        
+        choice := ui.PostRunMenu(result.Passed, filepath.Base(file))
+        if choice == ui.ChoiceReturnMenu {
+            goto menuReturn  // Exit file loop
+        }
+    }
+    
+    menuReturn:
+        // Loop restarts: back to TUI selection
+}
+```
+
+**Result:**
+- User can test multiple files, healings, then select new directory/model
+- No CLI restart needed
+- Full flow: Model selection → Test file → Diagnostics → Menu → (Extend heal OR Continue OR Return) → TUI
+
+---
+
 ## Appendix: Critical Edge Cases Summary
 
 | Domain | Edge Case | Mitigation |
