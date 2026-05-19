@@ -74,20 +74,13 @@ func LogDivider() {
 	colorMuted.Println("  " + strings.Repeat("─", 50))
 }
 
-// LogCodeBlock prints a titled, bordered code preview (capped at 30 lines).
+// LogCodeBlock prints a titled, bordered code preview (no line limit - shows everything).
 func LogCodeBlock(title, content string) {
 	colorPrimary.Printf("\n  ┌─ %s %s\n", title, strings.Repeat("─", max(0, 44-len(title))))
 	lines := strings.Split(content, "\n")
-	limit := 30
-	if len(lines) < limit {
-		limit = len(lines)
-	}
-	for _, line := range lines[:limit] {
+	for _, line := range lines {
 		colorMuted.Printf("  │ ")
 		colorInfo.Printf("%s\n", line)
-	}
-	if len(lines) > 30 {
-		colorMuted.Printf("  │ ... (%d more lines)\n", len(lines)-30)
 	}
 	colorPrimary.Println("  └" + strings.Repeat("─", 51))
 	fmt.Println()

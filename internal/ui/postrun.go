@@ -6,10 +6,7 @@ import (
 
 // PostRunDiagnostic provides a brief explanation of why a test failed
 func PostRunDiagnostic(errorType string, stderr string) string {
-	// Cap stderr for display
-	if len(stderr) > 500 {
-		stderr = stderr[:500] + "\n... (truncated)"
-	}
+	// Show full stderr in diagnostic (no truncation for user visibility)
 
 	var msg string
 	switch errorType {

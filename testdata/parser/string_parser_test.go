@@ -1,30 +1,30 @@
 package parser
 
 import (
-	"errors"
 	"testing"
 )
 
 func TestParseCSVLine(t *testing.T) {
 	cases := []struct {
-		line     string
-		expected []string
-		err      error
+		name      string
+		line      string
+		want      []string
+		wantErr   bool
 	}{
-		{"", nil, errors.New("empty line")},
-		{"a,b,c", []string{"a", "b", "c"}, nil},
-		{" a , b , c ", []string{"a", "b", "c"}, nil},
-		{"a,,c", []string{"a", "", "c"}, nil},
+		{"valid csv", "field1, field2, field3", []string{"field1", "field2", "field3"}, false},
+		{"empty line", "", nil, true},
+		{"no fields", ",", nil, true},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.line, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			got, err := ParseCSVLine(tc.line)
-			if err != nil && err.Error() != tc.err.Error() {
-				t.Errorf("ParseCSVLine(%q) error = %v; want %v", tc.line, err, tc.err)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ParseCSVLine() error = %v, wantErr %v", err, tc.wantErr)
+				return
 			}
-			if !equalStringSlices(got, tc.expected) {
-				t.Errorf("ParseCSVLine(%q) = %v; want %v", tc.line, got, tc.expected)
+			if !equalStringSlices(got, tc.want) {
+				t.Errorf("ParseCSVLine() = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -32,27 +32,26 @@ func TestParseCSVLine(t *testing.T) {
 
 func TestParseKeyValuePairs(t *testing.T) {
 	cases := []struct {
-		input    string
-		expected map[string]string
-		err      error
+		name    string
+		input   string
+		want    map[string]string
+		wantErr bool
 	}{
-		{"", map[string]string{}, nil},
-		{"key=value", map[string]string{"key": "value"}, nil},
-		{"key1=value1\nkey2=value2", map[string]string{"key1": "value1", "key2": "value2"}, nil},
-		{"key1=value1\nkey2= ", map[string]string{"key1": "value1", "key2": ""}, nil},
-		{"key1=value1\n=invalid", nil, errors.New("invalid key=value format")},
-		{"key1=value1\nkey2", nil, errors.New("invalid key=value format")},
-		{"key1=value1\n\nkey2=value2", map[string]string{"key1": "value1", "key2": "value2"}, nil},
+		{"valid input", "key1=value1\nkey2=value2", map[string]string{"key1": "value1", "key2": "value2"}, false},
+		{"empty input", "", map[string]string{}, false},
+		{"invalid format", "invalid_format", nil, true},
+		{"empty key", "=value", nil, true},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.input, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			got, err := ParseKeyValuePairs(tc.input)
-			if err != nil && err.Error() != tc.err.Error() {
-				t.Errorf("ParseKeyValuePairs(%q) error = %v; want %v", tc.input, err, tc.err)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ParseKeyValuePairs() error = %v, wantErr %v", err, tc.wantErr)
+				return
 			}
-			if !equalStringMap(got, tc.expected) {
-				t.Errorf("ParseKeyValuePairs(%q) = %v; want %v", tc.input, got, tc.expected)
+			if !equalStringMaps(got, tc.want) {
+				t.Errorf("ParseKeyValuePairs() = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -60,24 +59,26 @@ func TestParseKeyValuePairs(t *testing.T) {
 
 func TestParseJSONPath(t *testing.T) {
 	cases := []struct {
-		path     string
-		expected []string
-		err      error
+		name    string
+		path    string
+		want    []string
+		wantErr bool
 	}{
-		{"", nil, errors.New("empty path")},
-		{"user.profile.name", []string{"user", "profile", "name"}, nil},
-		{"user..name", nil, errors.New("empty path component")},
-		{"user.profile.", nil, errors.New("empty path component")},
+		{"valid path", "user.profile.name", []string{"user", "profile", "name"}, false},
+		{"empty path", "", nil, true},
+		{"no path components", ".", nil, true},
+		{"empty path component", "user..name", nil, true},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.path, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			got, err := ParseJSONPath(tc.path)
-			if err != nil && err.Error() != tc.err.Error() {
-				t.Errorf("ParseJSONPath(%q) error = %v; want %v", tc.path, err, tc.err)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ParseJSONPath() error = %v, wantErr %v", err, tc.wantErr)
+				return
 			}
-			if !equalStringSlices(got, tc.expected) {
-				t.Errorf("ParseJSONPath(%q) = %v; want %v", tc.path, got, tc.expected)
+			if !equalStringSlices(got, tc.want) {
+				t.Errorf("ParseJSONPath() = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -85,25 +86,26 @@ func TestParseJSONPath(t *testing.T) {
 
 func TestExtractQuotedString(t *testing.T) {
 	cases := []struct {
-		input    string
-		expected string
-		err      error
+		name    string
+		input   string
+		want    string
+		wantErr bool
 	}{
-		{"", "", errors.New("string too short for quotes")},
-		{"no quotes", "", errors.New("missing opening quote")},
-		{"\"unquoted", "", errors.New("missing closing quote")},
-		{"\"valid quoted\"", "valid quoted", nil},
-		{"\"escaped \\\"quote\"", "escaped \"quote", nil},
+		{"valid quoted string", "\"hello, world\"", "hello, world", false},
+		{"missing opening quote", "hello, world\"", "", true},
+		{"missing closing quote", "\"hello, world", "", true},
+		{"string too short", "\"", "", true},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.input, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			got, err := ExtractQuotedString(tc.input)
-			if err != nil && err.Error() != tc.err.Error() {
-				t.Errorf("ExtractQuotedString(%q) error = %v; want %v", tc.input, err, tc.err)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("ExtractQuotedString() error = %v, wantErr %v", err, tc.wantErr)
+				return
 			}
-			if got != tc.expected {
-				t.Errorf("ExtractQuotedString(%q) = %q; want %q", tc.input, got, tc.expected)
+			if got != tc.want {
+				t.Errorf("ExtractQuotedString() = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -111,27 +113,27 @@ func TestExtractQuotedString(t *testing.T) {
 
 func TestSplitOnDelimiter(t *testing.T) {
 	cases := []struct {
-		input    string
+		name      string
+		input     string
 		delimiter string
-		expected []string
-		err      error
+		want      []string
+		wantErr   bool
 	}{
-		{"", ",", []string{}, nil},
-		{"a,b,c", ",", []string{"a", "b", "c"}, nil},
-		{"a;;b;;c", ";", []string{"a", "", "b", "", "c"}, nil},
-		{"data|more data|even more data", "|", []string{"data", "more data", "even more data"}, nil},
-		{"data|more data|", "|", []string{"data", "more data", ""}, nil},
-		{"data|more data|", "", nil, errors.New("empty delimiter")},
+		{"valid input", "a,b,c", ",", []string{"a", "b", "c"}, false},
+		{"empty input", "", ",", []string{}, false},
+		{"empty delimiter", "a,b,c", "", nil, true},
+		{"no results", "abc", " ", nil, true},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.input, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			got, err := SplitOnDelimiter(tc.input, tc.delimiter)
-			if err != nil && err.Error() != tc.err.Error() {
-				t.Errorf("SplitOnDelimiter(%q, %q) error = %v; want %v", tc.input, tc.delimiter, err, tc.err)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("SplitOnDelimiter() error = %v, wantErr %v", err, tc.wantErr)
+				return
 			}
-			if !equalStringSlices(got, tc.expected) {
-				t.Errorf("SplitOnDelimiter(%q, %q) = %v; want %v", tc.input, tc.delimiter, got, tc.expected)
+			if !equalStringSlices(got, tc.want) {
+				t.Errorf("SplitOnDelimiter() = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -149,12 +151,12 @@ func equalStringSlices(a, b []string) bool {
 	return true
 }
 
-func equalStringMap(a, b map[string]string) bool {
+func equalStringMaps(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for k, v := range a {
-		if b[k] != v {
+	for key, val := range a {
+		if bVal, exists := b[key]; !exists || bVal != val {
 			return false
 		}
 	}

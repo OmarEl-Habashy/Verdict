@@ -1,55 +1,73 @@
 package httpclient
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestGetBody(t *testing.T) {
 	cases := []struct {
-		name         string
-		url          string
-		responseCode int
-		responseBody string
-		expectError  bool
+		name           string
+		url            string
+		handler        http.HandlerFunc
+		expectedBody   string
+		expectedError  bool
 	}{
-		{"successful get", "/success", http.StatusOK, "Hello, World!", false},
-		{"non-200 status", "/notfound", http.StatusNotFound, "", true},
-		{"read error", "/readerror", http.StatusOK, "", true},
+		{
+			name: "successful response",
+			url:  "/success",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				io.WriteString(w, "Hello, World!")
+			},
+			expectedBody:  "Hello, World!",
+			expectedError: false,
+		},
+		{
+			name: "404 response",
+			url:  "/notfound",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+			},
+			expectedBody:  "",
+			expectedError: true,
+		},
+		{
+			name: "error on connecting",
+			url:  "/error",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				// simulate an internal server error
+				w.WriteHeader(http.StatusInternalServerError)
+			},
+			expectedBody:  "",
+			expectedError: true,
+		},
+		{
+			name: "timeout",
+			url:  "/timeout",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				time.Sleep(11 * time.Second) // longer than the client's timeout
+			},
+			expectedBody:  "",
+			expectedError: true,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var handler http.HandlerFunc
-			if tc.name == "successful get" {
-				handler = func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(tc.responseCode)
-					fmt.Fprint(w, tc.responseBody)
-				}
-			} else if tc.name == "non-200 status" {
-				handler = func(w http.ResponseWriter, r *http.Request) {
-					http.Error(w, "Not Found", tc.responseCode)
-				}
-			} else {
-				handler = func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(tc.responseCode)
-					_, _ = io.WriteString(w, "") // Simulating an error reading body
-				}
-			}
-
-			ts := httptest.NewServer(handler)
+			ts := httptest.NewServer(http.HandlerFunc(tc.handler))
 			defer ts.Close()
 
-			got, err := GetBody(ts.URL)
-			if (err != nil) != tc.expectError {
-				t.Errorf("GetBody(%q) unexpected error: %v", ts.URL, err)
-				return
+			body, err := GetBody(ts.URL + tc.url)
+
+			if (err != nil) != tc.expectedError {
+				t.Fatalf("GetBody() error = %v, wantErr %v", err, tc.expectedError)
 			}
-			if !tc.expectError && got != tc.responseBody {
-				t.Errorf("GetBody(%q) = %q; want %q", ts.URL, got, tc.responseBody)
+			if body != tc.expectedBody {
+				t.Errorf("GetBody() = %v, want %v", body, tc.expectedBody)
 			}
 		})
 	}

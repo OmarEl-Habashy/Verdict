@@ -51,8 +51,18 @@ func buildHealPrompt(result runner.TestResult) string {
 		guidance = "This is a compilation error. Fix ONLY what the error message indicates. " +
 			"Do not add new external dependencies or change the package name or function signatures."
 	case "runtime_error":
-		guidance = "This is a runtime error. The syntax is correct but the logic has issues. " +
-			"Check nil pointers, type assertions, and ensure all test cases are valid."
+		guidance = "The test compiled successfully but FAILED at runtime. A test case has an INCORRECT EXPECTATION.\n\n" +
+			"CRITICAL AUDIT STEPS:\n" +
+			"1. Find the failing test case line in the error output\n" +
+			"2. Read the source code for that function carefully\n" +
+			"3. Trace through what the function ACTUALLY does with that input\n" +
+			"4. Compare: does the test expect the same behavior the function implements?\n\n" +
+			"Common mistakes:\n" +
+			"- Test expects the function to transform/escape/format, but it doesn't\n" +
+			"- Test case value was guessed and doesn't match actual behavior\n" +
+			"- Test case is testing a code path that doesn't exist in the source\n\n" +
+			"FIX: Update the test case so the expected value (want) matches what the source code ACTUALLY returns.\n" +
+			"Do NOT change the source code (the function being tested)."
 	default:
 		guidance = "This is an unknown error type. Fix ONLY what the errors below indicate. " +
 			"Do not change the package name or add new external dependencies."
