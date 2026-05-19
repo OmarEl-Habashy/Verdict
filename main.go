@@ -32,7 +32,7 @@ func main() {
 
 	// If no arguments provided, launch interactive TUI
 	if len(os.Args) == 1 {
-		_, allFiles, provider, err := ui.RunInteractiveMode()
+		_, allFiles, provider, selectedModel, err := ui.RunInteractiveMode()
 		if err != nil {
 			os.Exit(1)
 		}
@@ -42,12 +42,13 @@ func main() {
 		}
 
 		if provider == "local" {
-			if os.Getenv("QAGENT_MODEL") == "" {
-				os.Setenv("QAGENT_MODEL", "ollama/mistral")
+			modelName := selectedModel
+			if modelName == "" {
+				modelName = "ollama/mistral"
 			}
-			if os.Getenv("QAGENT_MODEL_URL") == "" {
-				os.Setenv("QAGENT_MODEL_URL", "http://localhost:11434/api/chat")
-			}
+			os.Setenv("QAGENT_MODEL", modelName)
+			os.Setenv("QAGENT_MODEL_URL", "http://localhost:11434/api/chat")
+			os.Setenv("QAGENT_API_KEY", "") // Clear API key for local provider
 		} else if provider == "cloud" {
 			if os.Getenv("QAGENT_MODEL") == "" {
 				os.Setenv("QAGENT_MODEL", "anthropic/claude-3.5-sonnet")

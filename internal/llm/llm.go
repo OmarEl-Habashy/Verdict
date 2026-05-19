@@ -157,3 +157,74 @@ func CallLLMOpenAI(url, apiKey string, req OpenAIRequest, timeoutSec int) (strin
 
 	return oaiResp.Choices[0].Message.Content, nil
 }
+
+// --- Ollama model discovery ---
+
+// OllamaModel represents a single model from Ollama's /api/tags endpoint.
+type OllamaModel struct {
+	Name       string `json:"name"`
+	ModifiedAt string `json:"modified_at"`
+	Size       int64  `json:"size"`
+}
+
+// OllamaTagsResponse is the response body from Ollama /api/tags endpoint.
+type OllamaTagsResponse struct {
+	Models []OllamaModel `json:"models"`
+}
+
+// GetAvailableModels fetches available models from Ollama.
+// baseURL should be like "http://localhost:11434" (without /api/chat suffix).
+// Returns empty slice if Ollama is unreachable or has no models.
+func GetAvailableModels(baseURL string) []string {
+	models, err := GetOllamaModels(baseURL)
+	if err != nil {
+		return []string{}
+	}
+	return models
+}
+
+// IsOllamaRunning checks if Ollama is accessible at the given base URL.
+// baseURL should be like "http://localhost:11434" (without /api/chat suffix).
+// Returns true if Ollama responds, false otherwise.
+func IsOllamaRunning(baseURL string) bool {
+	tagsURL := strings.TrimSuffix(baseURL, "/") + "/api/tags"
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(tagsURL)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// GetOllamaModels fetches the list of available models from a local Ollama instance.
+// Returns empty slice if Ollama is not running or unreachable.
+func GetOllamaModels(ollamaURL string) ([]string, error) {
+	tagsURL := strings.TrimSuffix(ollamaURL, "/") + "/api/tags"
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(tagsURL)
+	if err != nil {
+		return nil, fmt.Errorf("getOllamaModels: connecting to %s: %w", tagsURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("getOllamaModels: server returned %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("getOllamaModels: reading response: %w", err)
+	}
+
+	var tagsResp OllamaTagsResponse
+	if err := json.Unmarshal(data, &tagsResp); err != nil {
+		return nil, fmt.Errorf("getOllamaModels: parsing response: %w", err)
+	}
+
+	var modelNames []string
+	for _, m := range tagsResp.Models {
+		modelNames = append(modelNames, m.Name)
+	}
+	return modelNames, nil
+}

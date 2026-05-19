@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/OmarEl-Habashy/qagent/internal/llm"
 )
 
 var verdictArt = []string{
@@ -23,9 +25,10 @@ var verdictArt = []string{
 
 const (
 	modeProvider = "provider"
-	modeInput   = "input"
-	modeBrowse  = "browse"
-	modeConfirm = "confirm"
+	modeModel    = "model"
+	modeInput    = "input"
+	modeBrowse   = "browse"
+	modeConfirm  = "confirm"
 )
 
 type blinkMsg struct{}
@@ -171,18 +174,23 @@ func buildVisible(nodes []treeNode) []int {
 // ── Model ─────────────────────────────────────────────────────────────────────
 
 type TUIModel struct {
-	mode      string
-	field     inputField
-	rootDir   string
-	tree      []treeNode
-	visible   []int
-	cursor    int
+	mode           string
+	field          inputField
+	rootDir        string
+	tree           []treeNode
+	visible        []int
+	cursor         int
 	selected       map[string]bool
 	confirmed      bool
 	err            error
 	cursorBlink    bool
 	providerCursor int
 	provider       string
+	models         []string   // available Ollama models
+	modelCursor    int        // selected model index
+	selectedModel  string     // the chosen model
+	modelInput     inputField // input field for manual model name
+	inModelInput   bool       // true if typing model name manually
 }
 
 func InitialModel() TUIModel {
@@ -214,6 +222,8 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeProvider:
 		return m.handleProvider(k)
+	case modeModel:
+		return m.handleModel(k)
 	case modeInput:
 		return m.handleInput(k)
 	case modeBrowse:
@@ -235,10 +245,89 @@ func (m TUIModel) handleProvider(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 	case "enter", " ":
 		if m.providerCursor == 0 {
 			m.provider = "local"
+			// Fetch available Ollama models
+			m.models = llm.GetAvailableModels("http://localhost:11434")
+			m.modelCursor = 0
+			if len(m.models) > 0 {
+				m.selectedModel = m.models[0]
+			}
+			m.mode = modeModel
 		} else {
 			m.provider = "cloud"
+			m.mode = modeInput
 		}
-		m.mode = modeInput
+	}
+	return m, nil
+}
+
+func (m TUIModel) handleModel(k tea.KeyMsg) (TUIModel, tea.Cmd) {
+	if m.inModelInput {
+		return m.handleModelInput(k)
+	}
+
+	switch k.String() {
+	case "ctrl+c", "q", "esc":
+		return m, tea.Quit
+	case "i":
+		// Enter manual input mode
+		m.inModelInput = true
+		m.modelInput = newField("")
+		return m, nil
+	case "up", "k":
+		if m.modelCursor > 0 {
+			m.modelCursor--
+		}
+	case "down", "j":
+		if m.modelCursor < len(m.models)-1 {
+			m.modelCursor++
+		}
+	case "enter", " ":
+		if len(m.models) > 0 {
+			m.selectedModel = m.models[m.modelCursor]
+			m.mode = modeInput
+		}
+	case "b":
+		m.mode = modeProvider
+	}
+	return m, nil
+}
+
+func (m TUIModel) handleModelInput(k tea.KeyMsg) (TUIModel, tea.Cmd) {
+	switch k.String() {
+	case "ctrl+c", "esc":
+		m.inModelInput = false
+		m.modelInput = inputField{}
+		return m, nil
+	case "enter":
+		modelName := strings.TrimSpace(m.modelInput.value)
+		if modelName != "" {
+			m.selectedModel = modelName
+			m.inModelInput = false
+			m.mode = modeInput
+			return m, nil
+		}
+		m.err = fmt.Errorf("model name cannot be empty")
+		return m, nil
+	case "left":
+		m.modelInput.left()
+	case "right":
+		m.modelInput.right()
+	case "home", "ctrl+a":
+		m.modelInput = m.modelInput.home()
+	case "end", "ctrl+e":
+		m.modelInput = m.modelInput.end()
+	case "backspace":
+		m.modelInput.deleteBack()
+	case "delete":
+		m.modelInput.deleteForward()
+	default:
+		if k.Type == tea.KeyRunes || k.Type == tea.KeySpace {
+			for _, r := range k.Runes {
+				if r != 0 {
+					m.modelInput.insert(r)
+				}
+			}
+		}
 	}
 	return m, nil
 }
@@ -249,16 +338,17 @@ func (m TUIModel) handleInput(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 		return m, tea.Quit
 	case "enter":
 		path := strings.TrimSpace(m.field.value)
+		path = strings.ReplaceAll(path, "\x00", "")
 		if path == "" {
 			path = "."
 		}
 		abs, err := filepath.Abs(path)
 		if err != nil {
-			m.err = fmt.Errorf("invalid path: %s", path)
+			m.err = fmt.Errorf("invalid path: %q", path)
 			return m, nil
 		}
 		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
-			m.err = fmt.Errorf("not a directory: %s", abs)
+			m.err = fmt.Errorf("not a directory: %q (%v)", abs, err)
 			return m, nil
 		}
 		m.err = nil
@@ -281,8 +371,12 @@ func (m TUIModel) handleInput(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 	case "delete":
 		m.field.deleteForward()
 	default:
-		if len(k.Runes) > 0 {
-			m.field.insert(k.Runes[0])
+		if k.Type == tea.KeyRunes || k.Type == tea.KeySpace {
+			for _, r := range k.Runes {
+				if r != 0 {
+					m.field.insert(r)
+				}
+			}
 			m.err = nil
 		}
 	}
@@ -458,6 +552,8 @@ func (m TUIModel) View() string {
 	switch m.mode {
 	case modeProvider:
 		m.renderProvider(&b)
+	case modeModel:
+		m.renderModel(&b)
 	case modeInput:
 		m.renderInput(&b)
 	case modeBrowse:
@@ -473,7 +569,7 @@ func (m TUIModel) View() string {
 }
 
 func (m TUIModel) renderProvider(b *strings.Builder) {
-	colorEmphasis.Fprintf(b, "  [1/4] Select Model Provider\n\n")
+	colorEmphasis.Fprintf(b, "  [1/5] Select Model Provider\n\n")
 
 	choices := []string{"Local (Ollama / Mistral)", "Cloud (OpenRouter / Claude)"}
 	for i, choice := range choices {
@@ -487,8 +583,62 @@ func (m TUIModel) renderProvider(b *strings.Builder) {
 	colorMuted.Fprintln(b, "  ↑↓ move   ↵ Enter select   q quit")
 }
 
+func (m TUIModel) renderModel(b *strings.Builder) {
+	colorEmphasis.Fprintf(b, "  [2/5] Select Local Model\n\n")
+
+	if m.inModelInput {
+		m.renderModelInput(b)
+		return
+	}
+
+	if len(m.models) == 0 {
+		colorWarn.Fprintln(b, "  ⚠ No models found locally")
+		colorMuted.Fprintln(b, "  Pull a model to Ollama first, or enter one manually\n")
+		colorMuted.Fprintln(b, "  ↵ Enter continue   i type model   B back   q quit")
+		return
+	}
+
+	const maxVisible = 15
+	start := 0
+	if m.modelCursor >= maxVisible {
+		start = m.modelCursor - maxVisible + 1
+	}
+	end := start + maxVisible
+	if end > len(m.models) {
+		end = len(m.models)
+	}
+
+	for i := start; i < end; i++ {
+		if i == m.modelCursor {
+			colorActive.Fprintf(b, "  ▸ %s\n", m.models[i])
+		} else {
+			colorInfo.Fprintf(b, "    %s\n", m.models[i])
+		}
+	}
+
+	if len(m.models) > maxVisible {
+		colorMuted.Fprintf(b, "\n  ... %d more\n", len(m.models)-maxVisible)
+	}
+
+	b.WriteString("\n")
+	colorMuted.Fprintln(b, "  ↑↓ move   ↵ Enter select   i type model   B back   q quit")
+}
+
+func (m TUIModel) renderModelInput(b *strings.Builder) {
+	colorEmphasis.Fprintf(b, "  Enter model name (e.g. qwen2.5-coder:1.5b, mistral)\n\n")
+	colorMuted.Fprintf(b, "  ▶ ")
+	b.WriteString(m.modelInput.view(m.cursorBlink))
+	b.WriteString("\n\n")
+
+	if m.err != nil {
+		colorError.Fprintf(b, "  ✗ %v\n\n", m.err)
+	}
+
+	colorMuted.Fprintln(b, "  ← →  move cursor    Home/End  jump    ↵ Enter  confirm    ESC  cancel")
+}
+
 func (m TUIModel) renderInput(b *strings.Builder) {
-	colorEmphasis.Fprintf(b, "  [2/4] Enter directory path\n\n")
+	colorEmphasis.Fprintf(b, "  [3/5] Enter directory path\n\n")
 	colorMuted.Fprintf(b, "  ▶ ")
 	b.WriteString(m.field.view(m.cursorBlink))
 	b.WriteString("\n\n")
@@ -496,7 +646,7 @@ func (m TUIModel) renderInput(b *strings.Builder) {
 }
 
 func (m TUIModel) renderBrowse(b *strings.Builder) {
-	colorEmphasis.Fprintf(b, "  [3/4] Select files\n\n")
+	colorEmphasis.Fprintf(b, "  [4/5] Select files\n\n")
 	colorMuted.Fprintf(b, "  📁 %s\n\n", m.rootDir)
 
 	const maxVisible = 20
@@ -557,7 +707,7 @@ func (m TUIModel) renderBrowse(b *strings.Builder) {
 }
 
 func (m TUIModel) renderConfirm(b *strings.Builder) {
-	colorEmphasis.Fprintf(b, "  [4/4] Confirm & Run\n\n")
+	colorEmphasis.Fprintf(b, "  [5/5] Confirm & Run\n\n")
 	if len(m.selected) == 0 {
 		colorWarn.Fprintln(b, "  ⚠ No files selected — press B to go back.")
 		return
@@ -588,20 +738,20 @@ func (m TUIModel) renderConfirm(b *strings.Builder) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-func RunTUI() (string, []string, string, error) {
+func RunTUI() (string, []string, string, string, error) {
 	p := tea.NewProgram(InitialModel(), tea.WithAltScreen())
 	fm, err := p.Run()
 	if err != nil {
-		return "", nil, "", err
+		return "", nil, "", "", err
 	}
 	m := fm.(TUIModel)
 	if !m.confirmed || len(m.selected) == 0 {
-		return "", nil, "", nil
+		return "", nil, "", "", nil
 	}
 	var files []string
 	for f := range m.selected {
 		files = append(files, f)
 	}
 	sort.Strings(files)
-	return m.rootDir, files, m.provider, nil
+	return m.rootDir, files, m.provider, m.selectedModel, nil
 }
