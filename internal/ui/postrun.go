@@ -1,12 +1,19 @@
+/*
+Package ui manages the terminal user interfaces and logging for the application.
+This file handles the post-test-run interactions, providing diagnostic explanations
+for failures and displaying the interactive menu options to the user.
+
+Functions:
+- PostRunDiagnostic: Provides a brief explanation of why a test failed based on its error type.
+- PostRunMenu: Displays interactive options (continue, heal, menu) after a test completes.
+*/
 package ui
 
 import (
 	"fmt"
 )
 
-// PostRunDiagnostic provides a brief explanation of why a test failed
 func PostRunDiagnostic(errorType string, stderr string) string {
-	// Show full stderr in diagnostic (no truncation for user visibility)
 
 	var msg string
 	switch errorType {
@@ -30,11 +37,9 @@ func PostRunDiagnostic(errorType string, stderr string) string {
 		msg = "Unknown error. Check the error details below.\n"
 	}
 
-	// Return message with capped stderr
 	return msg + "\n" + stderr
 }
 
-// PostRunMenuChoice represents the user's choice after a test run
 type PostRunMenuChoice int
 
 const (
@@ -43,15 +48,11 @@ const (
 	ChoiceReturnMenu
 )
 
-// PostRunMenu displays options after a test completes
-// Accepts: passed status, test file path, total files count, current file index
-// Returns the user's choice; file cleanup should be handled by caller
 func PostRunMenu(passed bool, testFilePath string, totalFiles int, currentFileIndex int) PostRunMenuChoice {
 	fmt.Println()
 	colorEmphasis.Println("  [Post-Run Menu]")
 	fmt.Println()
 
-	// Check if there are more files after this one
 	hasMoreFiles := currentFileIndex < totalFiles-1
 
 	if passed {
@@ -74,7 +75,6 @@ func PostRunMenu(passed bool, testFilePath string, totalFiles int, currentFileIn
 			return ChoiceNext
 		}
 
-		// Last file - no continue option
 		fmt.Println(colorInfo.Sprint("    1. Return to main menu"))
 		fmt.Println()
 		fmt.Print(colorMuted.Sprint("  Choose (1): "))
@@ -83,7 +83,6 @@ func PostRunMenu(passed bool, testFilePath string, totalFiles int, currentFileIn
 		return ChoiceReturnMenu
 	}
 
-	// Failed test
 	colorError.Println("  ✗ Test failed")
 	fmt.Println()
 	fmt.Println("  Options:")
@@ -108,7 +107,6 @@ func PostRunMenu(passed bool, testFilePath string, totalFiles int, currentFileIn
 		}
 	}
 
-	// Last file - no continue option
 	fmt.Println(colorWarn.Sprint("    1. Try 2 more healing attempts"))
 	fmt.Println(colorInfo.Sprint("    2. Return to main menu"))
 	fmt.Println()

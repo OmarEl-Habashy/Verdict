@@ -1,15 +1,23 @@
+/*
+Package ui manages the terminal user interfaces and logging for the application.
+This file provides an animated terminal spinner using Bubble Tea to show progress
+during long-running operations (like LLM API calls), degrading gracefully for non-TTY.
+
+Functions:
+- NewSpinner: Creates a SpinnerModel with the given status message.
+- RunSpinner: Runs work in a goroutine while displaying an animated spinner.
+- isTTY: Checks if standard output is connected to an interactive terminal.
+*/
 package ui
 
 import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
-// SpinnerModel implements tea.Model for the bubbletea spinner.
-// The bubbletea interface is the ONLY permitted interface in this codebase (Rule 1 exception).
 type SpinnerModel struct {
 	sp      spinner.Model
 	message string
@@ -19,7 +27,6 @@ type SpinnerModel struct {
 
 type doneMsg struct{ err error }
 
-// NewSpinner creates a SpinnerModel with the given status message.
 func NewSpinner(msg string) SpinnerModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -51,8 +58,6 @@ func (m SpinnerModel) View() string {
 	return fmt.Sprintf("  %s %s\n", m.sp.View(), m.message)
 }
 
-// RunSpinner runs work() in a goroutine while displaying an animated spinner.
-// Degrades gracefully to a plain fmt.Println when stdout is not a TTY.
 func RunSpinner(msg string, work func() error) error {
 	if !isTTY() {
 		fmt.Printf("  → %s\n", msg)
@@ -71,7 +76,7 @@ func RunSpinner(msg string, work func() error) error {
 
 	finalModel, runErr := p.Run()
 	if runErr != nil {
-		// Bubbletea failed (e.g., terminal issue) — fall back to plain output.
+
 		fmt.Printf("  → %s\n", msg)
 		return work()
 	}
@@ -81,7 +86,6 @@ func RunSpinner(msg string, work func() error) error {
 		return sm.err
 	}
 
-	// Drain the channel (work may have already sent).
 	select {
 	case err := <-errCh:
 		return err
@@ -90,7 +94,6 @@ func RunSpinner(msg string, work func() error) error {
 	}
 }
 
-// isTTY returns true if stdout is an interactive terminal.
 func isTTY() bool {
 	fi, err := os.Stdout.Stat()
 	if err != nil {

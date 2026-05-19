@@ -1,3 +1,14 @@
+/*
+Package ui manages the terminal user interfaces and logging for the application.
+This file implements the interactive Text User Interface (TUI) powered by Bubble Tea,
+providing a wizard to select models, directories, and specific Go files to test.
+
+Functions:
+- buildTree / walkTree: Scans directories to build a visual file tree.
+- buildVisible: Determines which tree nodes are visible based on directory expansion.
+- InitialModel: Sets up the initial state for the TUI wizard.
+- RunTUI: Starts the Bubble Tea program and returns the user's selections.
+*/
 package ui
 
 import (
@@ -39,11 +50,9 @@ func blinkTick() tea.Cmd {
 	})
 }
 
-// ── Input field with real cursor support ──────────────────────────────────────
-
 type inputField struct {
 	value  string
-	cursor int // byte offset into value
+	cursor int
 }
 
 func newField(s string) inputField { return inputField{value: s, cursor: len(s)} }
@@ -90,7 +99,6 @@ func (f *inputField) right() {
 func (f inputField) home() inputField { f.cursor = 0; return f }
 func (f inputField) end() inputField  { f.cursor = len(f.value); return f }
 
-// view renders the field with the char under cursor highlighted.
 func (f inputField) view(blink bool) string {
 	before := f.value[:f.cursor]
 	after := f.value[f.cursor:]
@@ -106,8 +114,6 @@ func (f inputField) view(blink bool) string {
 	}
 	return colorInfo.Sprint(before) + colorActive.Sprint("█") + colorInfo.Sprint(after[sz:])
 }
-
-// ── Tree node ─────────────────────────────────────────────────────────────────
 
 type treeNode struct {
 	name     string
@@ -151,15 +157,13 @@ func walkTree(dir string, depth int, nodes *[]treeNode) {
 	}
 }
 
-// buildVisible returns the indices of nodes that should be shown.
-// A node is hidden when any ancestor dir is collapsed.
 func buildVisible(nodes []treeNode) []int {
 	var visible []int
 	collapsedDepth := -1
 	for i, n := range nodes {
 		if collapsedDepth >= 0 {
 			if n.depth > collapsedDepth {
-				continue // hidden under a collapsed dir
+				continue
 			}
 			collapsedDepth = -1
 		}
@@ -170,8 +174,6 @@ func buildVisible(nodes []treeNode) []int {
 	}
 	return visible
 }
-
-// ── Model ─────────────────────────────────────────────────────────────────────
 
 type TUIModel struct {
 	mode           string
@@ -186,11 +188,11 @@ type TUIModel struct {
 	cursorBlink    bool
 	providerCursor int
 	provider       string
-	models         []string   // available Ollama models
-	modelCursor    int        // selected model index
-	selectedModel  string     // the chosen model
-	modelInput     inputField // input field for manual model name
-	inModelInput   bool       // true if typing model name manually
+	models         []string
+	modelCursor    int
+	selectedModel  string
+	modelInput     inputField
+	inModelInput   bool
 }
 
 func InitialModel() TUIModel {
@@ -203,8 +205,6 @@ func InitialModel() TUIModel {
 }
 
 func (m TUIModel) Init() tea.Cmd { return blinkTick() }
-
-// ── Update ────────────────────────────────────────────────────────────────────
 
 func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(blinkMsg); ok {
@@ -245,7 +245,7 @@ func (m TUIModel) handleProvider(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 	case "enter", " ":
 		if m.providerCursor == 0 {
 			m.provider = "local"
-			// Fetch available Ollama models
+
 			m.models = llm.GetAvailableModels("http://localhost:11434")
 			m.modelCursor = 0
 			if len(m.models) > 0 {
@@ -269,7 +269,7 @@ func (m TUIModel) handleModel(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 	case "ctrl+c", "q", "esc":
 		return m, tea.Quit
 	case "i":
-		// Enter manual input mode
+
 		m.inModelInput = true
 		m.modelInput = newField("")
 		return m, nil
@@ -408,7 +408,7 @@ func (m TUIModel) handleBrowse(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 		if n.isDir && !n.expanded {
 			m.tree[idx].expanded = true
 			m.visible = buildVisible(m.tree)
-			// Keep cursor on same node
+
 			for i, vi := range m.visible {
 				if vi == idx {
 					m.cursor = i
@@ -416,7 +416,7 @@ func (m TUIModel) handleBrowse(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 				}
 			}
 		} else if !n.isDir {
-			// Toggle file selection
+
 			if m.selected[n.fullPath] {
 				delete(m.selected, n.fullPath)
 			} else {
@@ -431,7 +431,7 @@ func (m TUIModel) handleBrowse(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 		idx := m.visible[m.cursor]
 		n := m.tree[idx]
 		if n.isDir && n.expanded {
-			// Collapse this dir
+
 			m.tree[idx].expanded = false
 			m.visible = buildVisible(m.tree)
 			for i, vi := range m.visible {
@@ -441,7 +441,7 @@ func (m TUIModel) handleBrowse(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 				}
 			}
 		} else {
-			// Jump to parent dir
+
 			for i := m.cursor - 1; i >= 0; i-- {
 				parent := m.tree[m.visible[i]]
 				if parent.isDir && parent.depth < n.depth {
@@ -499,8 +499,6 @@ func (m TUIModel) handleConfirm(k tea.KeyMsg) (TUIModel, tea.Cmd) {
 	return m, nil
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 func (m *TUIModel) toggleDir(dir string) {
 	entries, _ := os.ReadDir(dir)
 	var goFiles []string
@@ -537,11 +535,9 @@ func collectGoFiles(nodes []treeNode) []string {
 	return out
 }
 
-// ── View ──────────────────────────────────────────────────────────────────────
-
 func (m TUIModel) View() string {
 	var b strings.Builder
-	// Banner
+
 	b.WriteString("\n")
 	for _, line := range verdictArt {
 		colorPrimary.Fprintf(&b, "  %s\n", line)
@@ -735,8 +731,6 @@ func (m TUIModel) renderConfirm(b *strings.Builder) {
 	colorMuted.Fprintln(b, "  ─────────────────────────────────────────────────")
 	colorMuted.Fprintln(b, "  ↵ Enter  run tests    B  go back    q  quit")
 }
-
-// ── Public API ────────────────────────────────────────────────────────────────
 
 func RunTUI() (string, []string, string, string, error) {
 	p := tea.NewProgram(InitialModel(), tea.WithAltScreen())

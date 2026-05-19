@@ -1,3 +1,13 @@
+/*
+Package llm provides tests for the llm package.
+This file contains unit tests to ensure robustness of LLM API interaction functions,
+specifically verifying behavior when Ollama or external models are unreachable or invalid.
+
+Functions (Tests):
+- TestIsOllamaRunning: Tests if the Ollama running check correctly identifies unreachable/invalid hosts.
+- TestGetOllamaModels: Tests if the model fetching logic correctly handles errors for unreachable endpoints.
+- TestGetAvailableModels: Tests if the wrapper for available models properly returns an empty slice on failure.
+*/
 package llm
 
 import (

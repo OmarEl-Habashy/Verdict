@@ -1,3 +1,12 @@
+/*
+Package main provides the entry point for the QAgent CLI application.
+This file implements the telemetry and usage tracking functionality for QAgent,
+saving structured records of each test run to a local JSONL file for later analysis
+of failure patterns and model performance.
+
+Functions:
+- LogRun: Appends a structured run record to the ~/.qagent/runs.jsonl file, failing silently if an error occurs.
+*/
 package main
 
 import (
@@ -6,8 +15,6 @@ import (
 	"path/filepath"
 )
 
-// RunRecord is logged to ~/.qagent/runs.jsonl after each run.
-// Use for later analysis of failure patterns and model performance.
 type RunRecord struct {
 	File      string `json:"file"`
 	Model     string `json:"model"`
@@ -18,21 +25,18 @@ type RunRecord struct {
 	Timestamp string `json:"timestamp"`
 }
 
-// LogRun appends a structured run record to ~/.qagent/runs.jsonl.
-// Non-fatal: errors are logged but do not affect the main pipeline.
 func LogRun(rec RunRecord) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		// Silently fail — logging is non-critical.
+
 		return
 	}
 
 	logPath := filepath.Join(homeDir, ".qagent", "runs.jsonl")
 	dir := filepath.Dir(logPath)
 
-	// Create directory if it doesn't exist.
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		// Silently fail — logging is non-critical.
+
 		return
 	}
 

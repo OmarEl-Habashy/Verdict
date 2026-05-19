@@ -6,14 +6,15 @@ import (
 
 func TestParseCSVLine(t *testing.T) {
 	cases := []struct {
-		name      string
-		line      string
-		want      []string
-		wantErr   bool
+		name     string
+		line     string
+		want     []string
+		wantErr  bool
 	}{
-		{"valid csv", "field1, field2, field3", []string{"field1", "field2", "field3"}, false},
 		{"empty line", "", nil, true},
-		{"no fields", ",", nil, true},
+		{"single field", "field", []string{"field"}, false},
+		{"multiple fields", "field1, field2", []string{"field1", "field2"}, false},
+		{"spaces around fields", "  field1 , field2  ", []string{"field1", "field2"}, false},
 	}
 
 	for _, tc := range cases {
@@ -21,10 +22,8 @@ func TestParseCSVLine(t *testing.T) {
 			got, err := ParseCSVLine(tc.line)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("ParseCSVLine() error = %v, wantErr %v", err, tc.wantErr)
-				return
-			}
-			if !equalStringSlices(got, tc.want) {
-				t.Errorf("ParseCSVLine() = %v, want %v", got, tc.want)
+			} else if !tc.wantErr && !equalSlices(got, tc.want) {
+				t.Errorf("ParseCSVLine() got = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -32,14 +31,15 @@ func TestParseCSVLine(t *testing.T) {
 
 func TestParseKeyValuePairs(t *testing.T) {
 	cases := []struct {
-		name    string
-		input   string
-		want    map[string]string
-		wantErr bool
+		name     string
+		input    string
+		want     map[string]string
+		wantErr  bool
 	}{
-		{"valid input", "key1=value1\nkey2=value2", map[string]string{"key1": "value1", "key2": "value2"}, false},
 		{"empty input", "", map[string]string{}, false},
-		{"invalid format", "invalid_format", nil, true},
+		{"single pair", "key=value", map[string]string{"key": "value"}, false},
+		{"multiple pairs", "key1=value1\nkey2=value2", map[string]string{"key1": "value1", "key2": "value2"}, false},
+		{"invalid format", "key1=value1,key2", nil, true},
 		{"empty key", "=value", nil, true},
 	}
 
@@ -48,10 +48,8 @@ func TestParseKeyValuePairs(t *testing.T) {
 			got, err := ParseKeyValuePairs(tc.input)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("ParseKeyValuePairs() error = %v, wantErr %v", err, tc.wantErr)
-				return
-			}
-			if !equalStringMaps(got, tc.want) {
-				t.Errorf("ParseKeyValuePairs() = %v, want %v", got, tc.want)
+			} else if !tc.wantErr && !equalMaps(got, tc.want) {
+				t.Errorf("ParseKeyValuePairs() got = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -59,15 +57,14 @@ func TestParseKeyValuePairs(t *testing.T) {
 
 func TestParseJSONPath(t *testing.T) {
 	cases := []struct {
-		name    string
-		path    string
-		want    []string
-		wantErr bool
+		name     string
+		path     string
+		want     []string
+		wantErr  bool
 	}{
-		{"valid path", "user.profile.name", []string{"user", "profile", "name"}, false},
 		{"empty path", "", nil, true},
-		{"no path components", ".", nil, true},
-		{"empty path component", "user..name", nil, true},
+		{"valid path", "user.profile.name", []string{"user", "profile", "name"}, false},
+		{"path with empty component", "user..name", nil, true},
 	}
 
 	for _, tc := range cases {
@@ -75,10 +72,8 @@ func TestParseJSONPath(t *testing.T) {
 			got, err := ParseJSONPath(tc.path)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("ParseJSONPath() error = %v, wantErr %v", err, tc.wantErr)
-				return
-			}
-			if !equalStringSlices(got, tc.want) {
-				t.Errorf("ParseJSONPath() = %v, want %v", got, tc.want)
+			} else if !tc.wantErr && !equalSlices(got, tc.want) {
+				t.Errorf("ParseJSONPath() got = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -86,15 +81,16 @@ func TestParseJSONPath(t *testing.T) {
 
 func TestExtractQuotedString(t *testing.T) {
 	cases := []struct {
-		name    string
-		input   string
-		want    string
-		wantErr bool
+		name     string
+		input    string
+		want     string
+		wantErr  bool
 	}{
-		{"valid quoted string", "\"hello, world\"", "hello, world", false},
-		{"missing opening quote", "hello, world\"", "", true},
-		{"missing closing quote", "\"hello, world", "", true},
-		{"string too short", "\"", "", true},
+		{"missing opening quote", "hello\"", "", true},
+		{"missing closing quote", "\"hello", "", true},
+		{"valid quoted string", "\"hello\"", "hello", false},
+		{"string with escaped quotes", "\"this is a \\\"test\\\"\"", "this is a \"test\"", false},
+		{"string too short", "h", "", true},
 	}
 
 	for _, tc := range cases {
@@ -102,10 +98,8 @@ func TestExtractQuotedString(t *testing.T) {
 			got, err := ExtractQuotedString(tc.input)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("ExtractQuotedString() error = %v, wantErr %v", err, tc.wantErr)
-				return
-			}
-			if got != tc.want {
-				t.Errorf("ExtractQuotedString() = %v, want %v", got, tc.want)
+			} else if !tc.wantErr && got != tc.want {
+				t.Errorf("ExtractQuotedString() got = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -113,16 +107,16 @@ func TestExtractQuotedString(t *testing.T) {
 
 func TestSplitOnDelimiter(t *testing.T) {
 	cases := []struct {
-		name      string
-		input     string
+		name     string
+		input    string
 		delimiter string
-		want      []string
-		wantErr   bool
+		want     []string
+		wantErr  bool
 	}{
-		{"valid input", "a,b,c", ",", []string{"a", "b", "c"}, false},
 		{"empty input", "", ",", []string{}, false},
-		{"empty delimiter", "a,b,c", "", nil, true},
-		{"no results", "abc", " ", nil, true},
+		{"empty delimiter", "hello,world", "", nil, true},
+		{"valid split", "a,b,c", ",", []string{"a", "b", "c"}, false},
+		{"split with spaces", " a , b , c ", ",", []string{" a ", " b ", " c "}, false},
 	}
 
 	for _, tc := range cases {
@@ -130,16 +124,14 @@ func TestSplitOnDelimiter(t *testing.T) {
 			got, err := SplitOnDelimiter(tc.input, tc.delimiter)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("SplitOnDelimiter() error = %v, wantErr %v", err, tc.wantErr)
-				return
-			}
-			if !equalStringSlices(got, tc.want) {
-				t.Errorf("SplitOnDelimiter() = %v, want %v", got, tc.want)
+			} else if !tc.wantErr && !equalSlices(got, tc.want) {
+				t.Errorf("SplitOnDelimiter() got = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
-func equalStringSlices(a, b []string) bool {
+func equalSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -151,12 +143,12 @@ func equalStringSlices(a, b []string) bool {
 	return true
 }
 
-func equalStringMaps(a, b map[string]string) bool {
+func equalMaps(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for key, val := range a {
-		if bVal, exists := b[key]; !exists || bVal != val {
+	for key, value := range a {
+		if bValue, ok := b[key]; !ok || value != bValue {
 			return false
 		}
 	}

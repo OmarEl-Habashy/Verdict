@@ -1,3 +1,15 @@
+/*
+Package main provides the entry point for the QAgent CLI application.
+This file handles the initialization, configuration loading, and execution of
+both the interactive TUI mode and the headless CLI mode. It orchestrates the
+entire core pipeline: prompting the LLM, extracting the generated tests,
+running them, and entering the healing loop on failure.
+
+Functions:
+- loadEnvFile: Searches for and loads the .env file from the executable directory or parent directories.
+- main: The application entry point. Parses arguments and handles the run modes.
+- RunPipeline: The core orchestrator orchestrating the LLM generation and healing loop.
+*/
 package main
 
 import (
@@ -16,61 +28,58 @@ import (
 	"github.com/OmarEl-Habashy/qagent/internal/ui"
 )
 
-// RunResult is the structured output of a full pipeline run.
 type RunResult struct {
 	TestFile   string
 	Passed     bool
 	Attempts   int
 	FinalError string
-	ErrorType  string  // from runner.DiagnoseTestFailure
-	Coverage   float64 // test coverage percentage
+	ErrorType  string
+	Coverage   float64
+	Stdout     string
+	Stderr     string
 	ElapsedMs  int64
 }
 
-// loadEnvFile searches for .env starting from the executable directory and walking up the tree
 func loadEnvFile() {
-	// Get the directory of the executable
+
 	ex, err := os.Executable()
 	if err != nil {
-		_ = godotenv.Load() // Fallback to CWD
+		_ = godotenv.Load()
 		return
 	}
 	exePath := filepath.Dir(ex)
 
-	// Search up the directory tree for .env
 	current := exePath
 	for {
 		envPath := filepath.Join(current, ".env")
 		if _, err := os.Stat(envPath); err == nil {
-			// .env found, load it
+
 			_ = godotenv.Load(envPath)
 			return
 		}
 
 		parent := filepath.Dir(current)
 		if parent == current {
-			// Reached root directory
+
 			break
 		}
 		current = parent
 	}
 
-	// Fallback: try loading from CWD
 	_ = godotenv.Load()
 }
 
 func main() {
-	loadEnvFile() // Load .env file from exe dir or parent directories
+	loadEnvFile()
 
-	// If no arguments provided, launch interactive TUI
 	if len(os.Args) == 1 {
-		// Outer loop: allows returning to TUI when user chooses "return to menu"
+
 		for {
 			_, allFiles, provider, selectedModel, err := ui.RunInteractiveMode()
 			if err != nil {
 				os.Exit(1)
 			}
-			// User exited without confirming — clean exit.
+
 			if len(allFiles) == 0 {
 				os.Exit(0)
 			}
@@ -82,7 +91,7 @@ func main() {
 				}
 				os.Setenv("QAGENT_MODEL", modelName)
 				os.Setenv("QAGENT_MODEL_URL", "http://localhost:11434/api/chat")
-				os.Setenv("QAGENT_API_KEY", "") // Clear API key for local provider
+				os.Setenv("QAGENT_API_KEY", "")
 			} else if provider == "cloud" {
 				if os.Getenv("QAGENT_MODEL") == "" {
 					os.Setenv("QAGENT_MODEL", "anthropic/claude-3.5-sonnet")
@@ -92,7 +101,6 @@ func main() {
 				}
 			}
 
-			// Run tests on confirmed files.
 			successCount := 0
 			failureCount := 0
 			returnToMenu := false
@@ -120,6 +128,9 @@ func main() {
 				elapsed := time.Since(start)
 				result.ElapsedMs = elapsed.Milliseconds()
 
+				testOutput := ui.CombineTestOutput(result.Stdout, result.Stderr)
+				_ = ui.LogTestResults(file, result.Passed, testOutput, result.Attempts)
+
 				if result.Passed {
 					successCount++
 					ui.LogSuccess("Passed: %s", filepath.Base(file))
@@ -127,19 +138,16 @@ func main() {
 					failureCount++
 					ui.LogError("Failed: %s", filepath.Base(file))
 
-					// Show diagnostic for failed test
 					fmt.Println()
 					ui.LogWarn("Diagnostic:")
 					diagnostic := ui.PostRunDiagnostic(result.ErrorType, result.FinalError)
 					fmt.Println(diagnostic)
 				}
 
-				// Show post-run menu
 				choice := ui.PostRunMenu(result.Passed, result.TestFile, len(allFiles), i)
 
-				// Handle cleanup and navigation based on choice
 				if choice == ui.ChoiceNext || choice == ui.ChoiceReturnMenu {
-					// Delete test file if test failed before moving on
+
 					if !result.Passed && result.TestFile != "" {
 						os.Remove(result.TestFile)
 					}
@@ -150,10 +158,12 @@ func main() {
 						fmt.Println()
 						ui.LogStep(0, 0, "Attempting 2 additional healing loops...")
 						extCfg := cfg
-						extCfg.MaxHeals = result.Attempts + 2 // Add 2 more attempts
+						extCfg.MaxHeals = result.Attempts + 2
 						extResult := RunPipeline(extCfg)
 						extResult.ElapsedMs = time.Since(start).Milliseconds()
 
+						extTestOutput := ui.CombineTestOutput(extResult.Stdout, extResult.Stderr)
+						_ = ui.LogTestResults(file, extResult.Passed, extTestOutput, extResult.Attempts)
 						if extResult.Passed {
 							successCount++
 							failureCount--
@@ -166,23 +176,21 @@ func main() {
 							diagnostic := ui.PostRunDiagnostic(extResult.ErrorType, extResult.FinalError)
 							fmt.Println(diagnostic)
 
-							// Ask again what to do
 							choice = ui.PostRunMenu(extResult.Passed, extResult.TestFile, len(allFiles), i)
 
-							// Handle cleanup if returning or continuing
 							if (choice == ui.ChoiceNext || choice == ui.ChoiceReturnMenu) && !extResult.Passed && extResult.TestFile != "" {
 								os.Remove(extResult.TestFile)
 							}
 							if choice == ui.ChoiceReturnMenu {
 								returnToMenu = true
-								break // Break inner loop to end file loop
+								break
 							}
 						}
 					}
 
 				case ui.ChoiceReturnMenu:
 					returnToMenu = true
-					break // Break file loop to return to TUI
+					break
 				}
 
 				LogRun(RunRecord{
@@ -196,24 +204,21 @@ func main() {
 				})
 			}
 
-			// If user chose to return to menu, loop back to show TUI again
 			if returnToMenu {
 				fmt.Println()
 				ui.LogInfo("Returning to main menu...")
 				fmt.Println()
-				continue // Loop back to RunInteractiveMode()
+				continue
 			}
 
-			// Normal batch completion
 			fmt.Println()
 			ui.LogBatchSummary(successCount, failureCount)
 			fmt.Println()
-			break // Exit interactive mode
+			break
 		}
 		return
 	}
 
-	// CLI mode
 	cfg, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n\n", err)
@@ -231,7 +236,9 @@ func main() {
 	elapsed := time.Since(start)
 	result.ElapsedMs = elapsed.Milliseconds()
 
-	// Log run for later analysis.
+	testOutput := ui.CombineTestOutput(result.Stdout, result.Stderr)
+	_ = ui.LogTestResults(cfg.TargetFile, result.Passed, testOutput, result.Attempts)
+
 	LogRun(RunRecord{
 		File:      filepath.Base(cfg.TargetFile),
 		Model:     cfg.ModelName,
@@ -262,7 +269,6 @@ func main() {
 	}
 }
 
-// RunPipeline is the core orchestrator: load → prompt → LLM → parse → test → heal.
 func RunPipeline(cfg Config) RunResult {
 	if !cfg.Quiet {
 		ui.LogStep(1, 4, "Loading source file")
@@ -344,7 +350,6 @@ func RunPipeline(cfg Config) RunResult {
 
 		lastResult = runner.RunTests(filepath.Dir(testPath), cfg.Coverage)
 
-		// Treat low coverage (<80%) as a failure to trigger healing
 		if lastResult.Passed && lastResult.Coverage > 0 && lastResult.Coverage < 80.0 {
 			lastResult.Passed = false
 			lastResult.ErrorType = "low_coverage"
@@ -359,10 +364,11 @@ func RunPipeline(cfg Config) RunResult {
 				Passed:   true,
 				Attempts: attempt + 1,
 				Coverage: lastResult.Coverage,
+				Stdout:   lastResult.Stdout,
+				Stderr:   lastResult.Stderr,
 			}
 		}
 
-		// Diagnose the failure: should we abort or attempt healing?
 		diag := runner.DiagnoseTestFailure(lastResult, cfg.TargetFile)
 
 		if diag.ShouldAbort {
@@ -380,10 +386,11 @@ func RunPipeline(cfg Config) RunResult {
 				FinalError: lastResult.Stderr,
 				ErrorType:  diag.ErrorType,
 				Coverage:   lastResult.Coverage,
+				Stdout:     lastResult.Stdout,
+				Stderr:     lastResult.Stderr,
 			}
 		}
 
-		// Not aborting — attempt healing.
 		if !cfg.Quiet {
 			ui.LogError("Tests failed (attempt %d/%d)", attempt+1, cfg.MaxHeals+1)
 			errOutput := lastResult.Stderr
@@ -406,5 +413,7 @@ func RunPipeline(cfg Config) RunResult {
 		FinalError: lastResult.Stderr,
 		ErrorType:  lastResult.ErrorType,
 		Coverage:   lastResult.Coverage,
+		Stdout:     lastResult.Stdout,
+		Stderr:     lastResult.Stderr,
 	}
 }

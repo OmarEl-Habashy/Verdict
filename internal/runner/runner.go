@@ -1,3 +1,14 @@
+/*
+Package runner executes generated test code and analyzes the results.
+This file contains the logic to invoke the `go test` command as a subprocess,
+gather its output (including test coverage), and handle cleanup of generated files.
+
+Functions:
+- RunTests: Executes the `go test` command with an appropriate timeout and coverage options.
+- CleanTestFile: Removes the generated test file after a failed final attempt.
+- extractCoverage: Parses the `coverage.out` file to calculate the total coverage percentage.
+- parseInt: Safely parses a string to an integer, returning 0 on error.
+*/
 package runner
 
 import (
@@ -14,20 +25,15 @@ import (
 
 const maxStderrLen = 2000
 
-// TestResult holds the outcome of a go test run.
 type TestResult struct {
 	Passed    bool
 	Stdout    string
 	Stderr    string
 	ExitCode  int
-	ErrorType string  // "missing_import", "syntax_error", "compilation", "runtime_error", "unknown"
-	Coverage  float64 // test coverage percentage (0-100), 0 if not collected
+	ErrorType string
+	Coverage  float64
 }
 
-// RunTests executes `go test -v -count=1 -timeout=30s ./...` in dir.
-// If collectCoverage is true, also passes -coverprofile=coverage.out.
-// The subprocess is bounded by a 60s context timeout.
-// Stderr is capped at 2000 chars before being stored (see Rule 10).
 func RunTests(dir string, collectCoverage bool) TestResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -59,20 +65,17 @@ func RunTests(dir string, collectCoverage bool) TestResult {
 	stderrStr := stderr.String()
 	stdoutStr := stdout.String()
 
-	// Surface go vet errors distinctly.
 	if strings.Contains(stderrStr, "# ") && strings.Contains(stderrStr, "go vet") {
 		stderrStr = "[vet error] " + stderrStr
 	}
-	// Cap stderr at 2000 chars to prevent LLM context blowup.
+
 	if len(stderrStr) > maxStderrLen {
 		stderrStr = stderrStr[:maxStderrLen] + "\n... (truncated to 2000 chars)"
 	}
 
-	// Classify error from both stdout and stderr (panics may be in stdout).
 	combinedErr := stderrStr + "\n" + stdoutStr
 	errType := ClassifyError(combinedErr)
 
-	// Extract coverage if tests passed and coverage was requested.
 	coverage := 0.0
 	if exitCode == 0 && collectCoverage {
 		coverage = extractCoverage(dir)
@@ -88,7 +91,6 @@ func RunTests(dir string, collectCoverage bool) TestResult {
 	}
 }
 
-// CleanTestFile removes the generated test file after a failed final attempt.
 func CleanTestFile(sourcePath, outputDir string) error {
 	base := strings.TrimSuffix(filepath.Base(sourcePath), ".go") + "_test.go"
 	var testPath string
@@ -104,21 +106,18 @@ func CleanTestFile(sourcePath, outputDir string) error {
 	return nil
 }
 
-// extractCoverage parses coverage.out in dir and returns the total coverage percentage.
-// Returns 0 if coverage.out doesn't exist or parsing fails.
 func extractCoverage(dir string) float64 {
 	coverPath := filepath.Join(dir, "coverage.out")
 	data, err := os.ReadFile(coverPath)
 	if err != nil {
-		return 0 // file doesn't exist or can't be read
+		return 0
 	}
 
 	lines := strings.Split(string(data), "\n")
 	if len(lines) < 2 {
-		return 0 // empty file
+		return 0
 	}
 
-	// Skip header line (mode: set)
 	var totalBlocks, coveredBlocks int
 
 	for _, line := range lines[1:] {
@@ -127,13 +126,11 @@ func extractCoverage(dir string) float64 {
 			continue
 		}
 
-		// Format: path/file.go:start.col,end.col numStmt count
 		parts := strings.Fields(line)
 		if len(parts) < 3 {
 			continue
 		}
 
-		// parts[1] is numStmt, parts[2] is count (1 = covered, 0 = not covered)
 		numStmt := parseInt(parts[1])
 		count := parseInt(parts[2])
 
@@ -150,7 +147,6 @@ func extractCoverage(dir string) float64 {
 	return (float64(coveredBlocks) / float64(totalBlocks)) * 100
 }
 
-// parseInt safely parses a string to int, returning 0 on error.
 func parseInt(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n

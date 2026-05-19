@@ -1,3 +1,14 @@
+/*
+Package parser provides utilities to parse and handle code extracted from LLM responses.
+This file contains the logic needed to safely extract Go code blocks from raw markdown
+produced by LLMs, and to write the extracted code to test files in the workspace.
+
+Functions:
+- ExtractGoBlock: Extracts a Go code block from a raw LLM response string.
+- findClosingFence: Helper to find the index of the closing markdown fence.
+- WriteTestFile: Writes the generated test code to a appropriately named _test.go file.
+- deriveTestFilePath: Builds the output path for the generated test file.
+*/
 package parser
 
 import (
@@ -7,21 +18,14 @@ import (
 	"strings"
 )
 
-// ExtractGoBlock extracts a Go code block from a raw LLM response string.
-// On heal attempts (takeLast=true), it returns the LAST block found, not the first —
-// the healed version is always appended after the original.
-// Falls back to accepting the full raw string if it starts with "package ".
-// Never uses regex — pure strings package operations only.
 func ExtractGoBlock(raw string, takeLast bool) (string, error) {
-	// Strip BOM and zero-width unicode chars that some LLMs emit.
+
 	raw = strings.TrimLeftFunc(raw, func(r rune) bool {
 		return r == '\uFEFF' || r == '\u200B' || r == '\u200C' || r == '\u200D'
 	})
 
-	// Normalize ```golang to ```go.
 	raw = strings.ReplaceAll(raw, "```golang", "```go")
 
-	// Find all ```go blocks and collect them.
 	var blocks []string
 	remaining := raw
 	for {
@@ -30,11 +34,11 @@ func ExtractGoBlock(raw string, takeLast bool) (string, error) {
 			break
 		}
 		rest := remaining[start+5:]
-		// Skip the newline immediately after the fence marker.
+
 		if len(rest) > 0 && rest[0] == '\n' {
 			rest = rest[1:]
 		}
-		// Find the closing fence — must be on its own line.
+
 		end := findClosingFence(rest)
 		if end == -1 {
 			break
@@ -43,7 +47,7 @@ func ExtractGoBlock(raw string, takeLast bool) (string, error) {
 		if block != "" {
 			blocks = append(blocks, block)
 		}
-		// Advance past the closing fence.
+
 		remaining = rest[end+3:]
 	}
 
@@ -54,7 +58,6 @@ func ExtractGoBlock(raw string, takeLast bool) (string, error) {
 		return blocks[0], nil
 	}
 
-	// Fallback: accept raw input if it looks like a Go file.
 	trimmed := strings.TrimSpace(raw)
 	if strings.HasPrefix(trimmed, "package ") {
 		return trimmed, nil
@@ -63,7 +66,6 @@ func ExtractGoBlock(raw string, takeLast bool) (string, error) {
 	return "", fmt.Errorf("extractGoBlock: no go code block found in LLM response")
 }
 
-// findClosingFence finds the index of the first closing ``` that appears on its own line.
 func findClosingFence(s string) int {
 	idx := 0
 	for idx < len(s) {
@@ -72,7 +74,7 @@ func findClosingFence(s string) int {
 			return -1
 		}
 		abs := idx + end
-		// Check that the ``` is at the start of a line.
+
 		if abs == 0 || s[abs-1] == '\n' {
 			return abs
 		}
@@ -81,10 +83,6 @@ func findClosingFence(s string) int {
 	return -1
 }
 
-// WriteTestFile writes generated test code to a _test.go file.
-// If outputDir is non-empty, the file is written there; otherwise it is placed
-// in the same directory as the source file.
-// Returns the absolute path of the written test file.
 func WriteTestFile(sourcePath, outputDir, code string) (string, error) {
 	testPath := deriveTestFilePath(sourcePath, outputDir)
 
@@ -94,7 +92,6 @@ func WriteTestFile(sourcePath, outputDir, code string) (string, error) {
 	return testPath, nil
 }
 
-// deriveTestFilePath builds the output path for the generated test file.
 func deriveTestFilePath(sourcePath, outputDir string) string {
 	base := strings.TrimSuffix(filepath.Base(sourcePath), ".go") + "_test.go"
 	if outputDir != "" {

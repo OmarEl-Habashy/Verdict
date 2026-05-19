@@ -1,3 +1,15 @@
+/*
+Package ui manages the terminal user interfaces and logging for the application.
+This file formats and displays the final test results, either as a stylish ASCII
+box summary or as a machine-readable JSON object depending on user settings.
+
+Functions:
+- PrintSummary: Renders an ASCII summary box of the test run to standard output.
+- PrintJSON: Emits a single JSON line to standard output for machine consumption.
+- repeat: Helper function to repeat a character multiple times.
+- center: Helper function to center a string within a given width.
+- LogBatchSummary: Prints a summary box for batch mode runs.
+*/
 package ui
 
 import (
@@ -9,28 +21,24 @@ import (
 	"github.com/fatih/color"
 )
 
-// JSONOutput is the machine-readable result emitted in --quiet mode.
 type JSONOutput struct {
 	Passed    bool    `json:"passed"`
 	Attempts  int     `json:"attempts"`
 	TestFile  string  `json:"test_file"`
 	ElapsedMs int64   `json:"elapsed_ms"`
-	Coverage  float64 `json:"coverage,omitempty"` // 0 if not collected
+	Coverage  float64 `json:"coverage,omitempty"`
 	Error     string  `json:"error,omitempty"`
 }
 
-// SummaryResult is a minimal interface for PrintSummary/PrintJSON —
-// avoids importing main package types; caller passes individual fields.
 type SummaryResult struct {
 	TestFile   string
 	Passed     bool
 	Attempts   int
 	FinalError string
 	ElapsedMs  int64
-	Coverage   float64 // test coverage percentage (0-100), 0 if not collected
+	Coverage   float64
 }
 
-// PrintSummary renders the ASCII summary box to stdout.
 func PrintSummary(r SummaryResult, elapsed time.Duration) {
 	const width = 42
 
@@ -69,7 +77,6 @@ func PrintSummary(r SummaryResult, elapsed time.Duration) {
 	}
 }
 
-// PrintJSON emits a single JSON line to stdout for machine consumption (--quiet mode).
 func PrintJSON(r SummaryResult, elapsed time.Duration) {
 	out := JSONOutput{
 		Passed:    r.Passed,
@@ -103,10 +110,8 @@ func center(s string, width int) string {
 	return repeat(" ", left) + s + repeat(" ", right)
 }
 
-// LogBatchSummary prints a summary box for batch (interactive) mode runs.
 func LogBatchSummary(passed, failed int) {
 	fmt.Println("  ╔════════════════════════════════════════╗")
 	fmt.Printf("  ║  Results: %d passed, %d failed        ║\n", passed, failed)
 	fmt.Println("  ╚════════════════════════════════════════╝")
 }
-

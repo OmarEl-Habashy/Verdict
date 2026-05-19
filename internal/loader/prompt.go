@@ -1,3 +1,12 @@
+/*
+Package loader provides functionality to build context and prompts for the LLM.
+This file constructs the core system prompt given to the LLM to instruct it on
+generating valid, high-coverage Go tests with specific stylistic rules and constraints.
+
+Functions:
+- BuildSystemPrompt: Generates the full system prompt using the file context and constraints.
+- BuildFewShotExample: Returns several high-quality examples of table-driven Go tests to guide the LLM.
+*/
 package loader
 
 import (
@@ -6,7 +15,6 @@ import (
 	"strings"
 )
 
-// BuildSystemPrompt constructs the full LLM system prompt for test generation.
 func BuildSystemPrompt(ctx FileContext) string {
 	funcList := "none detected"
 	if len(ctx.FuncNames) > 0 {
@@ -50,7 +58,6 @@ func BuildSystemPrompt(ctx FileContext) string {
 	)
 }
 
-// BuildFewShotExample returns hardcoded gold-standard test file examples covering different patterns.
 func BuildFewShotExample() string {
 	return "// Example 1: Pure function with table-driven tests\n" +
 		"```go\n" +

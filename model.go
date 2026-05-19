@@ -1,3 +1,14 @@
+/*
+Package main provides the entry point for the QAgent CLI application.
+This file contains the core logic for communicating with Large Language Models
+and generating the specialized prompts required to instruct the LLM on creating
+or healing Go test files.
+
+Functions:
+- callModel: Dispatches requests to the appropriate LLM backend (local or cloud) based on configuration.
+- buildHealPrompt: Constructs a targeted repair prompt after a failed test run, tailored to the specific error type.
+- buildCoverageHealPrompt: Constructs a specialized healing prompt when test coverage falls below the required threshold.
+*/
 package main
 
 import (
@@ -7,7 +18,6 @@ import (
 	"github.com/OmarEl-Habashy/qagent/internal/runner"
 )
 
-// callModel dispatches to the appropriate LLM backend based on whether an API key is set.
 func callModel(cfg Config, msgs []llm.LLMMessage) (string, error) {
 	if cfg.APIKey != "" {
 		req := llm.OpenAIRequest{
@@ -24,8 +34,6 @@ func callModel(cfg Config, msgs []llm.LLMMessage) (string, error) {
 	return llm.CallLLM(cfg.ModelURL, req, 120)
 }
 
-// buildHealPrompt constructs the repair prompt injected after a failed test run.
-// Customized based on error type for better LLM guidance.
 func buildHealPrompt(result runner.TestResult) string {
 	if result.ErrorType == "low_coverage" {
 		return buildCoverageHealPrompt(result.Coverage)
@@ -84,7 +92,6 @@ func buildHealPrompt(result runner.TestResult) string {
 	)
 }
 
-// buildCoverageHealPrompt constructs a specialized healing prompt for insufficient test coverage.
 func buildCoverageHealPrompt(coverage float64) string {
 	return fmt.Sprintf(
 		"The tests compiled and passed but only achieved %.1f%% coverage. Target is 80%%.\n\n"+

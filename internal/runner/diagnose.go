@@ -1,3 +1,13 @@
+/*
+Package runner executes generated test code and analyzes the results.
+This file provides diagnostic logic to triage test failures intelligently,
+determining whether a failed test is worth "healing" (retrying with the LLM)
+or if the run should be immediately aborted due to structural or runtime faults.
+
+Functions:
+- DiagnoseTestFailure: Performs triage on a test failure to determine if healing should occur.
+- extractFirstErrorFile: Extracts the first .go file involved in an error from the output, skipping the standard library.
+*/
 package runner
 
 import (
@@ -6,30 +16,23 @@ import (
 	"strings"
 )
 
-// DiagnosticResult describes whether a test failure should trigger healing or abort.
 type DiagnosticResult struct {
-	ShouldAbort     bool   // true: don't attempt healing, abort immediately
-	IsCompilation   bool   // true: test has syntax/structure issues, not worth healing
-	IsRuntimeCrash  bool   // true: test crashed (panic, nil map, etc)
-	SourceFileError bool   // true: error is in the source file, not the test
-	ErrorType       string // from ClassifyError
-	AbortReason     string // user-friendly reason for abort
+	ShouldAbort     bool
+	IsCompilation   bool
+	IsRuntimeCrash  bool
+	SourceFileError bool
+	ErrorType       string
+	AbortReason     string
 }
 
-// DiagnoseTestFailure performs intelligent triage on a test failure.
-// It determines whether healing should be attempted or the run should abort.
-// Returns a DiagnosticResult with abort decision and reason.
 func DiagnoseTestFailure(result TestResult, sourcePath string) DiagnosticResult {
 	diag := DiagnosticResult{
 		ErrorType: result.ErrorType,
 	}
 
-	// Check error type from combined stderr+stdout.
 	combinedErr := result.Stderr + "\n" + result.Stdout
 	diag.ErrorType = ClassifyError(combinedErr)
 
-	// Guard 1: Compilation errors should abort immediately (don't waste tokens healing).
-	// Compilation errors indicate the test structure itself is broken.
 	if diag.ErrorType == "syntax_error" || diag.ErrorType == "compilation" {
 		diag.ShouldAbort = true
 		diag.IsCompilation = true
@@ -37,8 +40,6 @@ func DiagnoseTestFailure(result TestResult, sourcePath string) DiagnosticResult 
 		return diag
 	}
 
-	// Guard 2: Runtime crashes should abort immediately (source file issue).
-	// Runtime errors like panics indicate the source code itself is broken.
 	if diag.ErrorType == "runtime_error" {
 		diag.ShouldAbort = true
 		diag.IsRuntimeCrash = true
@@ -46,8 +47,6 @@ func DiagnoseTestFailure(result TestResult, sourcePath string) DiagnosticResult 
 		return diag
 	}
 
-	// Guard 3: Check if error is in source file (not test file).
-	// Extract filename from first error line, skip stdlib paths.
 	sourceBase := filepath.Base(sourcePath)
 	firstFile := extractFirstErrorFile(combinedErr)
 	if firstFile != "" && firstFile == sourceBase {
@@ -57,12 +56,9 @@ func DiagnoseTestFailure(result TestResult, sourcePath string) DiagnosticResult 
 		return diag
 	}
 
-	// No abort conditions met — this error is worth healing.
 	return diag
 }
 
-// extractFirstErrorFile extracts the first .go file from error output, skipping stdlib.
-// Helper for DiagnoseTestFailure.
 func extractFirstErrorFile(errOutput string) string {
 	lines := strings.Split(errOutput, "\n")
 	for _, line := range lines {
@@ -74,7 +70,6 @@ func extractFirstErrorFile(errOutput string) string {
 		pathPart := strings.TrimSpace(line[:idx+3])
 		lower := strings.ToLower(pathPart)
 
-		// Skip stdlib paths.
 		if strings.Contains(lower, "/go/src/") ||
 			strings.Contains(lower, "\\go\\src\\") ||
 			strings.Contains(lower, "program files") ||

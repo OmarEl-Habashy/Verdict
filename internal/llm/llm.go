@@ -1,3 +1,15 @@
+/*
+Package llm handles the interaction with Large Language Models (LLMs).
+It provides structures and functions to construct requests, parse responses,
+and handle communication with both local (Ollama) and cloud (OpenAI-compatible) APIs.
+
+Functions:
+- CallLLM: Sends a request to an Ollama-compatible /api/chat endpoint.
+- CallLLMOpenAI: Sends a request to an OpenAI-compatible /v1/chat/completions endpoint.
+- GetAvailableModels: Fetches available models from Ollama safely without returning errors.
+- IsOllamaRunning: Checks if an Ollama instance is accessible at the given base URL.
+- GetOllamaModels: Fetches the list of available models from a local Ollama instance.
+*/
 package llm
 
 import (
@@ -11,29 +23,22 @@ import (
 	"time"
 )
 
-// LLMMessage is a single chat message for any LLM backend.
 type LLMMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// --- Ollama wire types ---
-
-// LLMRequest is the request body for the Ollama /api/chat endpoint.
 type LLMRequest struct {
 	Model    string       `json:"model"`
 	Messages []LLMMessage `json:"messages"`
 	Stream   bool         `json:"stream"`
 }
 
-// LLMResponse is the response body from Ollama.
 type LLMResponse struct {
 	Message LLMMessage `json:"message"`
 	Error   string     `json:"error,omitempty"`
 }
 
-// CallLLM sends a request to an Ollama-compatible /api/chat endpoint.
-// timeoutSec is the total HTTP timeout in seconds.
 func CallLLM(url string, req LLMRequest, timeoutSec int) (string, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -67,32 +72,24 @@ func CallLLM(url string, req LLMRequest, timeoutSec int) (string, error) {
 	return llmResp.Message.Content, nil
 }
 
-// --- OpenAI-compatible wire types ---
-
-// OpenAIRequest is the request body for the OpenAI /v1/chat/completions endpoint.
 type OpenAIRequest struct {
 	Model    string       `json:"model"`
 	Messages []LLMMessage `json:"messages"`
 }
 
-// OpenAIChoice wraps a single response choice.
 type OpenAIChoice struct {
 	Message LLMMessage `json:"message"`
 }
 
-// OpenAIResponse is the response body from an OpenAI-compatible endpoint.
 type OpenAIResponse struct {
 	Choices []OpenAIChoice `json:"choices"`
 	Error   *OpenAIError   `json:"error,omitempty"`
 }
 
-// OpenAIError holds the error object from an OpenAI-compatible API.
 type OpenAIError struct {
 	Message string `json:"message"`
 }
 
-// CallLLMOpenAI sends a request to an OpenAI-compatible /v1/chat/completions endpoint.
-// apiKey is passed as a Bearer token. timeoutSec is the total HTTP timeout.
 func CallLLMOpenAI(url, apiKey string, req OpenAIRequest, timeoutSec int) (string, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -110,7 +107,7 @@ func CallLLMOpenAI(url, apiKey string, req OpenAIRequest, timeoutSec int) (strin
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-	// OpenRouter requires these headers; free-tier models return 400 without them.
+
 	httpReq.Header.Set("HTTP-Referer", "https://github.com/OmarEl-Habashy/qagent")
 	httpReq.Header.Set("X-Title", "qagent")
 
@@ -121,7 +118,6 @@ func CallLLMOpenAI(url, apiKey string, req OpenAIRequest, timeoutSec int) (strin
 	}
 	defer resp.Body.Close()
 
-	// Handle rate limiting with a single retry.
 	if resp.StatusCode == http.StatusTooManyRequests {
 		fmt.Println("Rate limited. Waiting 5s...")
 		time.Sleep(5 * time.Second)
@@ -158,23 +154,16 @@ func CallLLMOpenAI(url, apiKey string, req OpenAIRequest, timeoutSec int) (strin
 	return oaiResp.Choices[0].Message.Content, nil
 }
 
-// --- Ollama model discovery ---
-
-// OllamaModel represents a single model from Ollama's /api/tags endpoint.
 type OllamaModel struct {
 	Name       string `json:"name"`
 	ModifiedAt string `json:"modified_at"`
 	Size       int64  `json:"size"`
 }
 
-// OllamaTagsResponse is the response body from Ollama /api/tags endpoint.
 type OllamaTagsResponse struct {
 	Models []OllamaModel `json:"models"`
 }
 
-// GetAvailableModels fetches available models from Ollama.
-// baseURL should be like "http://localhost:11434" (without /api/chat suffix).
-// Returns empty slice if Ollama is unreachable or has no models.
 func GetAvailableModels(baseURL string) []string {
 	models, err := GetOllamaModels(baseURL)
 	if err != nil {
@@ -183,9 +172,6 @@ func GetAvailableModels(baseURL string) []string {
 	return models
 }
 
-// IsOllamaRunning checks if Ollama is accessible at the given base URL.
-// baseURL should be like "http://localhost:11434" (without /api/chat suffix).
-// Returns true if Ollama responds, false otherwise.
 func IsOllamaRunning(baseURL string) bool {
 	tagsURL := strings.TrimSuffix(baseURL, "/") + "/api/tags"
 	client := &http.Client{Timeout: 3 * time.Second}
@@ -197,8 +183,6 @@ func IsOllamaRunning(baseURL string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// GetOllamaModels fetches the list of available models from a local Ollama instance.
-// Returns empty slice if Ollama is not running or unreachable.
 func GetOllamaModels(ollamaURL string) ([]string, error) {
 	tagsURL := strings.TrimSuffix(ollamaURL, "/") + "/api/tags"
 	client := &http.Client{Timeout: 5 * time.Second}
